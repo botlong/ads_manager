@@ -35,8 +35,8 @@ venv\Scripts\activate
 # Mac/Linux
 source venv/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies from root
+pip install -r ../requirements.txt
 # (Note: manual install if requirements.txt missing: fastapi uvicorn pandas langchain-openai langgraph python-dotenv)
 ```
 
