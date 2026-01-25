@@ -1,0 +1,116 @@
+/* Excel-Style Resizable Table Styles */
+
+.excel-table-container {
+    width: 100%;
+    /* overflow: auto;  REMOVED to prevent double scrollbar */
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+    background: white;
+    /* max-height: 500px; REMOVED for infinite scroll */
+}
+
+.excel-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 13px;
+    table-layout: fixed;
+}
+
+/* Table Header Styles (Excel-like) */
+.excel-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #f0f0f0;
+}
+
+.excel-table th {
+    background: #f0f0f0;
+    color: #333;
+    font-weight: 600;
+    padding: 10px 8px;
+    text-align: left;
+    border: 1px solid #d0d0d0;
+    border-bottom: 2px solid #b0b0b0;
+    user-select: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Column Header Text */
+.column-header-text {
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: calc(100% - 10px);
+}
+
+/* Resize Handle */
+.resize-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    user-select: none;
+    z-index: 1;
+}
+
+.resize-handle:hover {
+    background: rgba(59, 130, 246, 0.3);
+    border-right: 2px solid #3b82f6;
+}
+
+/* Table Body Styles */
+.excel-table tbody tr {
+    transition: background-color 0.15s ease;
+}
+
+.excel-table tbody tr:nth-child(even) {
+    background: #fafafa;
+}
+
+.excel-table tbody tr:hover {
+    background: #e3f2fd;
+}
+
+.excel-table tbody tr.clickable-row {
+    cursor: pointer;
+}
+
+.excel-table td {
+    padding: 8px;
+    border: 1px solid #e0e0e0;
+    color: #333;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Empty State */
+.excel-table-empty {
+    padding: 40px;
+    text-align: center;
+    color: #999;
+    background: white;
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+}
+
+.excel-table-empty p {
+    margin: 0;
+    font-size: 14px;
+}
+
+/* Active Resizing State */
+.excel-table.resizing {
+    user-select: none;
+}
+
+.excel-table.resizing * {
+    cursor: col-resize !important;
+}

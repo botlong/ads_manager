@@ -1,0 +1,25 @@
+﻿======================================================================
+DATABASE FILE VERIFICATION
+======================================================================
+
+1. Main Database: ads_data.sqlite
+   Path: D:\ads_manager\ads_data.sqlite
+   Size: 4.98 MB
+   Exists: YES
+   Asset table rows: 15
+   Sample data:
+     - for school
+     - hotels
+     - outdoor
+
+2. Backup File: ads_data_backup_20260123_123207.sqlite
+   Path: D:\ads_manager\ads_data_backup_20260123_123207.sqlite
+   Size: 4.98 MB
+   Exists: YES
+   Asset table rows: 15
+
+======================================================================
+CONFIRMATION:
+Recovery script operated on: D:\ads_manager\ads_data.sqlite
+This is the MAIN database (ads_data.sqlite)
+======================================================================

@@ -1,0 +1,21 @@
+﻿======================================================================
+ASSET TABLE STATUS CHECK
+======================================================================
+
+Total rows in asset table: 15
+
+ad_group_status distribution:
+----------------------------------------------------------------------
+  Enabled                        :   8 rows
+  Total: Shopping                :   1 rows
+  Total: Search                  :   1 rows
+  Total: Performance Max         :   1 rows
+  Total: Display                 :   1 rows
+  Total: Ad groups               :   1 rows
+  Total: Account                 :   1 rows
+  Paused                         :   1 rows
+
+======================================================================
+Rows with 'Enabled' status (to keep): 8
+Rows with other status (to delete): 7
+======================================================================

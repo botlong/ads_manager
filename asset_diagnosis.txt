@@ -1,0 +1,33 @@
+﻿============================================================
+ASSET TABLE STATUS CHECK
+============================================================
+
+1. CURRENT DATABASE (ads_data.sqlite)
+------------------------------------------------------------
+   Total rows: 6
+   Columns (65): ad_group_status, ad_group, campaign, status, status_reasons...
+   Sample data (first 3 rows):
+     Row 1: ('Total: Ad groups', None, None, None, None, None, None, None, None, None, 19976...
+     Row 2: ('Total: Account', None, None, None, None, None, None, None, None, None, 405993,...
+     Row 3: ('Total: Shopping', None, None, None, None, None, None, None, None, None, 0, 0, ...
+
+2. BACKUP FILES
+------------------------------------------------------------
+   Found 6 backup file(s):
+
+   1. ads_data_backup_20260123_123207.sqlite
+      Size: 4.98 MB
+      Date: 2026-01-23 10:54:56
+      Asset rows: 15
+
+   2. ads_data_backup_20260123_122448.sqlite
+      Size: 4.98 MB
+      Date: 2026-01-23 12:24:17
+      Asset rows: 6
+
+   3. ads_data_backup_20260123_122417.sqlite
+      Size: 4.98 MB
+      Date: 2026-01-23 10:54:56
+      Asset rows: 15
+
+============================================================

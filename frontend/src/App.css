@@ -1,0 +1,268 @@
+/* frontend/src/App.css */
+:root {
+  /* Light Theme for Dashboard */
+  --bg-app: #f8fafc;
+  /* slate-50 */
+  --bg-surface: #ffffff;
+  --text-main: #0f172a;
+  /* slate-900 */
+  --text-muted: #64748b;
+  /* slate-500 */
+  --border: #e2e8f0;
+  /* slate-200 */
+  --primary: #2563eb;
+  /* blue-600 */
+  --primary-hover: #1d4ed8;
+  --table-stripe: #f1f5f9;
+  /* slate-100 */
+
+  /* Dark Theme Scoped for Chat */
+  --chat-bg: #1e293b;
+  --chat-text: #f8fafc;
+  --chat-border: #334155;
+  --chat-primary: #3b82f6;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* overflow: hidden removed to allow detail page scrolling */
+}
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100vw;
+  /* overflow: hidden removed to allow detail page scrolling */
+}
+
+.dashboard {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  /* Full screen */
+  width: 100%;
+  height: 100%;
+  gap: 0;
+}
+
+/* Tabs */
+.tabs-nav {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  padding: 0.75rem 1.5rem 0.25rem 1.5rem;
+  /* Padding for the nav only */
+  background: var(--bg-surface);
+  overflow-x: auto;
+}
+
+.tab-btn {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.tab-btn:hover {
+  color: var(--text-main);
+}
+
+.tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+/* Data Panel */
+.data-panel {
+  background: var(--bg-surface);
+  border: none;
+  display: flex;
+  flex-direction: column;
+  /* Normal order: table scroll first, pagination last */
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Table */
+.table-scroll {
+  flex: 1;
+  overflow: auto;
+}
+
+.modern-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.modern-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+  text-align: left;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  white-space: nowrap;
+  z-index: 10;
+}
+
+.modern-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-main);
+  white-space: nowrap;
+  user-select: text;
+  /* Allow text selection for copying */
+  -webkit-user-select: text;
+  -moz-user-select: text;
+}
+
+.modern-table tbody tr:hover {
+  background-color: var(--table-stripe);
+}
+
+/* Pagination */
+.pagination-bar {
+  padding: 1rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pagination-info {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.pagination-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.page-btn {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: var(--text-main);
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f1f5f9;
+}
+
+/* Chat Widget - Dark Theme Preserved */
+.chat-widget {
+  z-index: 2000;
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+}
+
+.chat-toggle {
+  background: var(--chat-primary);
+  color: white;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-window {
+  background: var(--chat-bg);
+  border: 1px solid var(--chat-border);
+  color: var(--chat-text);
+  width: 380px;
+  height: 600px;
+  border-radius: 0.75rem;
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+}
+
+.chat-header {
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--chat-border);
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: white;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.msg {
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  max-width: 85%;
+  font-size: 0.9rem;
+}
+
+.msg.user {
+  align-self: flex-end;
+  background: var(--chat-primary);
+}
+
+.msg.agent {
+  align-self: flex-start;
+  background: var(--chat-border);
+}
+
+.chat-input-area {
+  padding: 1rem;
+  border-top: 1px solid var(--chat-border);
+  display: flex;
+  gap: 0.5rem;
+  background: var(--chat-bg);
+}
+
+.chat-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--chat-border);
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  color: white;
+}
+
+.chat-sidebar {
+  width: 200px;
+  background: #0f172a;
+  border-right: 1px solid var(--chat-border);
+}
