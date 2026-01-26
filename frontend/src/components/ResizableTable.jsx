@@ -193,19 +193,93 @@ const ResizableTable = ({
                                 className={onRowClick ? 'clickable-row' : ''}
                                 style={customStyle}
                             >
-                                {columns.map((column, colIndex) => (
-                                    <td
-                                        key={colIndex}
-                                        style={{
-                                            width: `${columnWidths[colIndex] || 150}px`,
-                                            minWidth: '50px'
-                                        }}
-                                    >
-                                        {row[column] !== null && row[column] !== undefined
-                                            ? String(row[column])
-                                            : '-'}
-                                    </td>
-                                ))}
+                                {columns.map((column, colIndex) => {
+                                    const value = row[column];
+
+                                    // Custom Rendering Logic
+                                    const cleanNumeric = (val) => {
+                                        if (val === null || val === undefined) return NaN;
+                                        if (typeof val === 'number') return val;
+                                        // Remove any character that isn't a digit, dot, or minus sign for numeric extraction
+                                        const clean = String(val).replace(/[^\d.-]/g, '');
+                                        return parseFloat(clean);
+                                    };
+
+                                    // 1. Initial string representation cleanup
+                                    let content = '-';
+                                    if (value !== null && value !== undefined) {
+                                        // Globally strip common currency symbols and commas for display
+                                        content = String(value).replace(/[$,€£¥₩\u20BD\u20B9\u20A9]/g, '').replace(/,/g, '').trim();
+                                    }
+
+                                    let cellStyle = {};
+
+                                    if (value !== null && value !== undefined) {
+                                        const num = cleanNumeric(value);
+                                        const isNumber = !isNaN(num);
+
+                                        // Common money/metric formatting (2 decimal places, no currency symbols)
+                                        const moneyColumns = [
+                                            'cost', 'conv_value', 'cpa', 'cpa_before_7d_average',
+                                            'cost_conv', 'roas', 'roas_before_7d_average',
+                                            'avg_cpc', 'price', 'budget', 'avg_cpm'
+                                        ];
+
+                                        if (moneyColumns.includes(column) || column.toLowerCase().includes('price') || column.toLowerCase().includes('cost')) {
+                                            if (isNumber) {
+                                                content = num.toFixed(2);
+                                            }
+                                        }
+
+                                        // Percentages
+                                        else if (column.includes('cvr') || column.includes('ctr') || column.includes('percent')) {
+                                            content = isNumber ? `${num.toFixed(2)}%` : content;
+                                        }
+
+                                        // ROAS Comparison (Rise = Green/Good)
+                                        else if (column === 'roas_compare') {
+                                            if (Math.abs(num) < 0.001) {
+                                                content = <span style={{ color: '#ccc' }}>0.00</span>;
+                                            } else {
+                                                const color = num > 0 ? 'green' : 'red';
+                                                const arrow = num > 0 ? '▲' : '▼';
+                                                content = (
+                                                    <span style={{ color, fontWeight: 'bold' }}>
+                                                        {arrow} {Math.abs(num).toFixed(2)}
+                                                    </span>
+                                                );
+                                            }
+                                        }
+
+                                        // CPA Comparison (Rise = Red/Bad)
+                                        else if (column === 'cpa_compare') {
+                                            if (Math.abs(num) < 0.001) {
+                                                content = <span style={{ color: '#ccc' }}>0.00</span>;
+                                            } else {
+                                                const color = num < 0 ? 'green' : 'red'; // Drop is Good
+                                                const arrow = num > 0 ? '▲' : '▼';
+                                                content = (
+                                                    <span style={{ color, fontWeight: 'bold' }}>
+                                                        {arrow} {Math.abs(num).toFixed(2)}
+                                                    </span>
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    return (
+                                        <td
+                                            key={colIndex}
+                                            style={{
+                                                width: `${columnWidths[colIndex] || 150}px`,
+                                                minWidth: '50px',
+                                                ...cellStyle
+                                            }}
+                                        >
+                                            {content}
+                                        </td>
+                                    );
+                                })}
                             </tr>
                         );
                     })}

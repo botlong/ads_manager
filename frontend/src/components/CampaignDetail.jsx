@@ -10,12 +10,12 @@ const hasAnomaly = (row) => {
         if (conv < 3) return false;
 
         const roas = parseFloat(row.roas || row.conv_value_cost) || 0;
-        const roasComp = parseFloat(row.roascompare_to) || 0;
+        const roasComp = parseFloat(row.roas_compare) || 0;
         if (roasComp > 0 && roas < (roasComp * 0.8)) return true;
 
-        const cpa = parseFloat(row.cost_conv || row.cpa) || 0;
-        const cpaComp = parseFloat(row.cost_conv_compare_to) || 0;
-        if (cpaComp > 0 && cpa > (cpaComp * 1.25)) return true;
+        const cpa = parseFloat(row.cpa || row.cost_conv) || 0;
+        const cpaComp = parseFloat(row.cpa_compare) || 0;
+        if (cpaComp > 0 && cpa > ((cpa - cpaComp) * 1.25)) return true;
 
         return false;
     } catch {
@@ -202,7 +202,6 @@ export default function CampaignDetail() {
 
     const tableLabels = {
         search_term: 'Search Term',
-        product: 'Product',
         channel: 'Channel',
         asset: 'Asset',
         audience: 'Audience',

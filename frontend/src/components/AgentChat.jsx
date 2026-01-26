@@ -1,23 +1,26 @@
 import React, { useState, useRef, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
-import { MessageSquare, X, Menu, Plus, Send, Trash2, Bot, Edit, Check, Sparkles } from 'lucide-react';
+import Markdown from 'react-markdown';
+import { MessageSquare, X, Menu, Plus, Send, Trash2, Edit, Check, Sparkles, Maximize2, Minimize2, Minus, Layout, Table, AlertTriangle, ChevronDown, CheckSquare, Square } from 'lucide-react';
 
 export default function AgentChat() {
     const [isOpen, setIsOpen] = useState(false);
+    const [isFullScreen, setIsFullScreen] = useState(false);
     const [conversations, setConversations] = useState([]);
     const [currentId, setCurrentId] = useState(null);
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [showSidebar, setShowSidebar] = useState(false);
 
-    // --- Rename State ---
+    // --- Table Selection State ---
+    const [selectedTables, setSelectedTables] = useState(['Anomalies', 'Campaigns', 'Products']);
+    const [isContextOpen, setIsContextOpen] = useState(false);
+
     const [editingId, setEditingId] = useState(null);
     const [editTitle, setEditTitle] = useState("");
-
-    // --- Window Size State ---
-    const [windowSize, setWindowSize] = useState({ width: 450, height: 650 }); // Increased size
+    const [windowSize, setWindowSize] = useState({ width: 450, height: 650 });
 
     const messagesEndRef = useRef(null);
+    const contextRef = useRef(null);
 
     // Load from localStorage on mount
     useEffect(() => {
@@ -25,9 +28,12 @@ export default function AgentChat() {
         if (saved) {
             try {
                 const parsed = JSON.parse(saved);
-                setConversations(parsed);
-                if (parsed.length > 0) {
-                    setCurrentId(parsed[0].id);
+                const validList = Array.isArray(parsed) ? parsed : [];
+                setConversations(validList);
+                if (validList.length > 0) {
+                    setCurrentId(validList[0].id);
+                } else {
+                    createNewChat();
                 }
             } catch (e) {
                 console.error("Failed to parse conversations", e);
@@ -40,12 +46,27 @@ export default function AgentChat() {
 
     // Save to localStorage whenever conversations change
     useEffect(() => {
-        if (conversations.length > 0) {
+        if (Array.isArray(conversations) && conversations.length > 0) {
             localStorage.setItem('agent_conversations', JSON.stringify(conversations));
         }
     }, [conversations]);
 
-    const getCurrentChat = () => conversations.find(c => c.id === currentId) || { messages: [] };
+    // Close context menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (contextRef.current && !contextRef.current.contains(event.target)) {
+                setIsContextOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const getCurrentChat = () => {
+        if (!Array.isArray(conversations)) return { title: 'Analysis', messages: [] };
+        const chat = conversations.find(c => c.id === currentId);
+        return chat || { title: 'Analysis', messages: [] };
+    };
 
     const createNewChat = () => {
         const newChat = {
@@ -53,22 +74,22 @@ export default function AgentChat() {
             title: `Analysis ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
             messages: [{ role: 'agent', content: '你好！我是广告诊断专家。\n\n**我可以帮你**：\n- 扫描所有广告系列，发现异常\n- 深度分析具体的 Performance Max 或 Search 广告系列\n\n请告诉我你需要什么？例如：\n- "扫描所有广告系列"\n- "分析 Sales-Performance Max-UK"' }]
         };
-        setConversations(prev => [newChat, ...prev]);
+        setConversations(prev => [newChat, ...(Array.isArray(prev) ? prev : [])]);
         setCurrentId(newChat.id);
         setShowSidebar(false);
     };
 
     const deleteChat = (e, id) => {
         e.stopPropagation();
-        const filtered = conversations.filter(c => c.id !== id);
-        setConversations(filtered);
-        if (id === currentId) {
-            setCurrentId(filtered.length > 0 ? filtered[0].id : null);
-        }
-        localStorage.setItem('agent_conversations', JSON.stringify(filtered));
+        setConversations(prev => {
+            const filtered = (Array.isArray(prev) ? prev : []).filter(c => c.id !== id);
+            if (id === currentId) {
+                setCurrentId(filtered.length > 0 ? filtered[0].id : null);
+            }
+            return filtered;
+        });
     };
 
-    // --- Rename Logic ---
     const startEditing = (e, chat) => {
         e.stopPropagation();
         setEditingId(chat.id);
@@ -78,10 +99,9 @@ export default function AgentChat() {
     const saveTitle = (e) => {
         e.stopPropagation();
         if (editingId) {
-            const updated = conversations.map(c =>
+            setConversations(prev => (Array.isArray(prev) ? prev : []).map(c =>
                 c.id === editingId ? { ...c, title: editTitle } : c
-            );
-            setConversations(updated);
+            ));
             setEditingId(null);
             setEditTitle("");
         }
@@ -93,15 +113,21 @@ export default function AgentChat() {
         setEditTitle("");
     };
 
+    const toggleTable = (tableName) => {
+        setSelectedTables(prev =>
+            prev.includes(tableName)
+                ? prev.filter(t => t !== tableName)
+                : [...prev, tableName]
+        );
+    };
+
     const sendMessage = async () => {
         if (!input.trim() || !currentId) return;
 
         const userMsg = { role: 'user', content: input };
-
-        // Optimistically update UI with user message
-        setConversations(prev => prev.map(c => {
+        setConversations(prev => (Array.isArray(prev) ? prev : []).map(c => {
             if (c.id === currentId) {
-                return { ...c, messages: [...c.messages, userMsg] };
+                return { ...c, messages: [...(Array.isArray(c.messages) ? c.messages : []), userMsg] };
             }
             return c;
         }));
@@ -110,16 +136,19 @@ export default function AgentChat() {
         setInput("");
         setLoading(true);
 
-        // Prepare History
-        // Prepare History (Send structured messages instead of string)
-        const currentMsgs = conversations.find(c => c.id === currentId)?.messages || [];
-        const messageHistory = currentMsgs.map(m => ({ role: m.role, content: m.content })).slice(-10); // increased context to 10
+        const currentChat = getCurrentChat();
+        const currentMsgs = Array.isArray(currentChat.messages) ? currentChat.messages : [];
+        const messageHistory = currentMsgs.map(m => ({ role: m.role, content: m.content })).slice(-10);
 
         try {
             const response = await fetch('http://localhost:8000/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: currentInput, messages: messageHistory })
+                body: JSON.stringify({
+                    message: currentInput,
+                    messages: messageHistory,
+                    selectedTables: selectedTables
+                })
             });
 
             if (!response.body) throw new Error("No response body");
@@ -128,10 +157,9 @@ export default function AgentChat() {
             const decoder = new TextDecoder();
             let agentMsgContent = "";
 
-            // Add empty agent message to start streaming into
-            setConversations(prev => prev.map(c => {
+            setConversations(prev => (Array.isArray(prev) ? prev : []).map(c => {
                 if (c.id === currentId) {
-                    return { ...c, messages: [...c.messages, { role: 'agent', content: "" }] };
+                    return { ...c, messages: [...(Array.isArray(c.messages) ? c.messages : []), { role: 'agent', content: "" }] };
                 }
                 return c;
             }));
@@ -143,11 +171,12 @@ export default function AgentChat() {
                 const chunk = decoder.decode(value, { stream: true });
                 agentMsgContent += chunk;
 
-                // Update the last message (agent's) with new content
-                setConversations(prev => prev.map(c => {
+                setConversations(prev => (Array.isArray(prev) ? prev : []).map(c => {
                     if (c.id === currentId) {
-                        const msgs = [...c.messages];
-                        msgs[msgs.length - 1] = { role: 'agent', content: agentMsgContent };
+                        const msgs = [...(Array.isArray(c.messages) ? c.messages : [])];
+                        if (msgs.length > 0) {
+                            msgs[msgs.length - 1] = { role: 'agent', content: agentMsgContent };
+                        }
                         return { ...c, messages: msgs };
                     }
                     return c;
@@ -156,9 +185,9 @@ export default function AgentChat() {
 
         } catch (e) {
             console.error(e);
-            setConversations(prev => prev.map(c => {
+            setConversations(prev => (Array.isArray(prev) ? prev : []).map(c => {
                 if (c.id === currentId) {
-                    return { ...c, messages: [...c.messages, { role: 'agent', content: "Error: Could not connect to backend." }] };
+                    return { ...c, messages: [...(Array.isArray(c.messages) ? c.messages : []), { role: 'agent', content: "Error: Could not connect to backend." }] };
                 }
                 return c;
             }));
@@ -166,14 +195,12 @@ export default function AgentChat() {
         setLoading(false);
     };
 
-    // --- Improved Scroll Logic ---
     const scrollContainerRef = useRef(null);
     const shouldAutoScroll = useRef(true);
 
     const onScroll = () => {
         if (!scrollContainerRef.current) return;
         const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-        // If user is within 50px of the bottom, enable auto-scroll. Otherwise disable it.
         shouldAutoScroll.current = scrollHeight - scrollTop - clientHeight < 50;
     };
 
@@ -187,10 +214,9 @@ export default function AgentChat() {
         scrollToBottom();
     }, [conversations, currentId, isOpen]);
 
-    // --- Drag (Move) Logic ---
     const [position, setPosition] = useState(() => ({
-        x: window.innerWidth - 470, // Adjusted for wider window
-        y: window.innerHeight - 700 // Adjusted for taller window
+        x: window.innerWidth - 470,
+        y: window.innerHeight - 700
     }));
 
     const isDragging = useRef(false);
@@ -198,6 +224,7 @@ export default function AgentChat() {
     const dragOffset = useRef({ x: 0, y: 0 });
 
     const onMouseDown = (e) => {
+        if (isFullScreen) return;
         isDragging.current = true;
         hasMoved.current = false;
         dragOffset.current = {
@@ -206,7 +233,6 @@ export default function AgentChat() {
         };
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
-        e.preventDefault();
     };
 
     const onMouseMove = (e) => {
@@ -232,12 +258,12 @@ export default function AgentChat() {
         document.removeEventListener('mouseup', onMouseUp);
     };
 
-    // --- Advanced Resize Logic ---
     const isResizing = useRef(false);
-    const resizeDir = useRef(null); // 'n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'
+    const resizeDir = useRef(null);
     const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0, l: 0, t: 0 });
 
     const onResizeMouseDown = (e, direction) => {
+        if (isFullScreen) return;
         e.preventDefault();
         e.stopPropagation();
         isResizing.current = true;
@@ -269,23 +295,21 @@ export default function AgentChat() {
 
         const dir = resizeDir.current;
 
-        // X-axis (Width & Left)
         if (dir.includes('e')) {
-            newWidth = Math.max(300, resizeStart.current.w + deltaX);
+            newWidth = Math.max(350, resizeStart.current.w + deltaX);
         } else if (dir.includes('w')) {
             const proposedWidth = resizeStart.current.w - deltaX;
-            if (proposedWidth >= 300) {
+            if (proposedWidth >= 350) {
                 newWidth = proposedWidth;
                 newLeft = resizeStart.current.l + deltaX;
             }
         }
 
-        // Y-axis (Height & Top)
         if (dir.includes('s')) {
-            newHeight = Math.max(400, resizeStart.current.h + deltaY);
+            newHeight = Math.max(450, resizeStart.current.h + deltaY);
         } else if (dir.includes('n')) {
             const proposedHeight = resizeStart.current.h - deltaY;
-            if (proposedHeight >= 400) {
+            if (proposedHeight >= 450) {
                 newHeight = proposedHeight;
                 newTop = resizeStart.current.t + deltaY;
             }
@@ -300,7 +324,6 @@ export default function AgentChat() {
         document.removeEventListener('mousemove', onResizeMouseMove);
         document.removeEventListener('mouseup', onResizeMouseUp);
     };
-
 
     const toggleChat = () => {
         if (!hasMoved.current) {
@@ -317,152 +340,89 @@ export default function AgentChat() {
         }
     };
 
-    // Styles
-    const widgetStyle = {
-        position: 'fixed',
-        left: position.x,
-        top: position.y,
-        zIndex: 10000,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'flex-start',
-    };
+    const currentChat = getCurrentChat();
+    const messages = Array.isArray(currentChat.messages) ? currentChat.messages : [];
 
-    const windowStyle = {
-        width: `${windowSize.width}px`,
-        height: `${windowSize.height}px`,
-        backgroundColor: '#ffffff',
-        borderRadius: '16px',
-        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        border: '1px solid #e2e8f0',
-        transition: isResizing.current ? 'none' : 'opacity 0.2s ease',
-        position: 'relative'
-    };
-
-    const headerStyle = {
-        padding: '12px 16px',
-        background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-        color: 'white',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        cursor: 'move',
-        userSelect: 'none',
-        borderBottom: '1px solid rgba(255,255,255,0.1)'
-    };
-
-    // Resize Handle Style Helper
-    const handleStyle = (pos, cursor) => ({
-        position: 'absolute',
-        ...pos,
-        zIndex: 2000,
-        backgroundColor: 'transparent', // Make visible for debugging with 'rgba(255,0,0,0.3)'
-        cursor: cursor
-    });
+    const ALL_TABLES = [
+        { id: 'Anomalies', label: 'Anomaly Monitor' },
+        { id: 'Campaigns', label: 'Campaigns Overview' },
+        { id: 'Products', label: 'Products Overview' },
+        { id: 'search_term', label: 'Search Terms' },
+        { id: 'asset', label: 'Asset Groups' },
+        { id: 'audience', label: 'Audience Segments' },
+        { id: 'age', label: 'Age Ranges' },
+        { id: 'gender', label: 'Gender Groups' },
+        { id: 'location', label: 'Location Matrix' },
+        { id: 'ad_schedule', label: 'Ad Schedules' }
+    ];
 
     return (
-        <div style={widgetStyle}>
+        <div
+            style={{
+                position: 'fixed',
+                left: isFullScreen ? 0 : position.x,
+                top: isFullScreen ? 0 : position.y,
+                zIndex: 10000,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+            }}
+        >
             {isOpen && (
-                <div style={windowStyle} className="chat-window-container">
+                <div
+                    style={{
+                        width: isFullScreen ? '100vw' : `${windowSize.width}px`,
+                        height: isFullScreen ? '100vh' : `${windowSize.height}px`,
+                        backgroundColor: '#ffffff',
+                        borderRadius: isFullScreen ? '0' : '16px',
+                        boxShadow: '0 20px 50px rgba(0, 0, 0, 0.15)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden',
+                        border: isFullScreen ? 'none' : '1px solid #eef2f6',
+                        transition: isResizing.current ? 'none' : 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                        position: 'relative',
+                    }}
+                    className="chat-window-container"
+                >
+                    {!isFullScreen && (
+                        <>
+                            <div onMouseDown={(e) => onResizeMouseDown(e, 'nw')} style={{ position: 'absolute', top: 0, left: 0, width: '15px', height: '15px', zIndex: 2000, cursor: 'nw-resize' }} />
+                            <div onMouseDown={(e) => onResizeMouseDown(e, 'ne')} style={{ position: 'absolute', top: 0, right: 0, width: '15px', height: '15px', zIndex: 2000, cursor: 'ne-resize' }} />
+                            <div onMouseDown={(e) => onResizeMouseDown(e, 'sw')} style={{ position: 'absolute', bottom: 0, left: 0, width: '15px', height: '15px', zIndex: 2000, cursor: 'sw-resize' }} />
+                            <div onMouseDown={(e) => onResizeMouseDown(e, 'se')} style={{ position: 'absolute', bottom: 0, right: 0, width: '15px', height: '15px', zIndex: 2000, cursor: 'se-resize' }} />
+                            <div onMouseDown={(e) => onResizeMouseDown(e, 'n')} style={{ position: 'absolute', top: 0, left: '15px', right: '15px', height: '8px', zIndex: 2000, cursor: 'n-resize' }} />
+                            <div onMouseDown={(e) => onResizeMouseDown(e, 's')} style={{ position: 'absolute', bottom: 0, left: '15px', right: '15px', height: '8px', zIndex: 2000, cursor: 's-resize' }} />
+                            <div onMouseDown={(e) => onResizeMouseDown(e, 'w')} style={{ position: 'absolute', left: 0, top: '15px', bottom: '15px', width: '8px', zIndex: 2000, cursor: 'w-resize' }} />
+                            <div onMouseDown={(e) => onResizeMouseDown(e, 'e')} style={{ position: 'absolute', right: 0, top: '15px', bottom: '15px', width: '8px', zIndex: 2000, cursor: 'e-resize' }} />
+                        </>
+                    )}
 
-                    {/* Resize Handles - 8 Directions */}
-                    {/* Corners */}
-                    <div onMouseDown={(e) => onResizeMouseDown(e, 'nw')} style={handleStyle({ top: 0, left: 0, width: '15px', height: '15px' }, 'nw-resize')} />
-                    <div onMouseDown={(e) => onResizeMouseDown(e, 'ne')} style={handleStyle({ top: 0, right: 0, width: '15px', height: '15px' }, 'ne-resize')} />
-                    <div onMouseDown={(e) => onResizeMouseDown(e, 'sw')} style={handleStyle({ bottom: 0, left: 0, width: '15px', height: '15px' }, 'sw-resize')} />
-                    <div onMouseDown={(e) => onResizeMouseDown(e, 'se')} style={handleStyle({ bottom: 0, right: 0, width: '15px', height: '15px' }, 'se-resize')} />
-
-                    {/* Edges */}
-                    <div onMouseDown={(e) => onResizeMouseDown(e, 'n')} style={handleStyle({ top: 0, left: '15px', right: '15px', height: '8px' }, 'n-resize')} />
-                    <div onMouseDown={(e) => onResizeMouseDown(e, 's')} style={handleStyle({ bottom: 0, left: '15px', right: '15px', height: '8px' }, 's-resize')} />
-                    <div onMouseDown={(e) => onResizeMouseDown(e, 'w')} style={handleStyle({ left: 0, top: '15px', bottom: '15px', width: '8px' }, 'w-resize')} />
-                    <div onMouseDown={(e) => onResizeMouseDown(e, 'e')} style={handleStyle({ right: 0, top: '15px', bottom: '15px', width: '8px' }, 'e-resize')} />
-
-                    {/* Sidebar Overlay */}
                     {showSidebar && (
                         <>
-                            <div
-                                onClick={() => setShowSidebar(false)}
-                                style={{
-                                    position: 'absolute',
-                                    top: 0, left: 0, right: 0, bottom: 0,
-                                    backgroundColor: 'rgba(0,0,0,0.3)',
-                                    zIndex: 19
-                                }}
-                            />
-                            <div style={{
-                                position: 'absolute',
-                                top: 0, left: 0, bottom: 0,
-                                width: '240px',
-                                backgroundColor: '#f8fafc',
-                                borderRight: '1px solid #e2e8f0',
-                                zIndex: 20,
-                                display: 'flex',
-                                flexDirection: 'column',
-                                boxShadow: '4px 0 15px rgba(0,0,0,0.1)'
-                            }}>
-                                <div style={{ padding: '16px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <span style={{ fontWeight: 600, color: '#334155' }}>History</span>
+                            <div onClick={() => setShowSidebar(false)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 19, backdropFilter: 'blur(2px)' }} />
+                            <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: '260px', backgroundColor: '#ffffff', borderRight: '1px solid #f1f5f9', zIndex: 20, display: 'flex', flexDirection: 'column', boxShadow: '10px 0 25px rgba(0,0,0,0.1)', animation: 'slideIn 0.2s ease-out' }}>
+                                <div style={{ padding: '20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontWeight: 700, color: '#1e293b', fontSize: '1rem' }}>History</span>
                                     <div style={{ display: 'flex', gap: '8px' }}>
-                                        <button onClick={createNewChat} title="New Chat" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6' }}>
-                                            <Plus size={20} />
-                                        </button>
-                                        <button onClick={() => setShowSidebar(false)} title="Close Sidebar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}>
-                                            <X size={20} />
-                                        </button>
+                                        <button onClick={createNewChat} title="New Chat" style={{ background: '#f1f5f9', border: 'none', borderRadius: '6px', padding: '6px', cursor: 'pointer', color: '#0f172a' }}><Plus size={18} /></button>
+                                        <button onClick={() => setShowSidebar(false)} title="Close Sidebar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
                                     </div>
                                 </div>
-                                <div style={{ flex: 1, overflowY: 'auto' }}>
-                                    {conversations.map(c => (
-                                        <div
-                                            key={c.id}
-                                            onClick={() => { setCurrentId(c.id); setShowSidebar(false); }}
-                                            style={{
-                                                padding: '12px 16px',
-                                                cursor: 'pointer',
-                                                backgroundColor: c.id === currentId ? '#e0f2fe' : 'transparent',
-                                                borderLeft: c.id === currentId ? '3px solid #3b82f6' : '3px solid transparent',
-                                                display: 'flex',
-                                                justifyContent: 'space-between',
-                                                alignItems: 'center',
-                                                minHeight: '44px'
-                                            }}
-                                        >
+                                <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
+                                    {Array.isArray(conversations) && conversations.map(c => (
+                                        <div key={c.id} onClick={() => { setCurrentId(c.id); setShowSidebar(false); }} style={{ padding: '12px 14px', borderRadius: '10px', cursor: 'pointer', backgroundColor: c.id === currentId ? '#f1f5f9' : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                                             {editingId === c.id ? (
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '100%' }} onClick={e => e.stopPropagation()}>
-                                                    <input
-                                                        value={editTitle}
-                                                        onChange={e => setEditTitle(e.target.value)}
-                                                        onKeyDown={e => e.key === 'Enter' && saveTitle(e)}
-                                                        autoFocus
-                                                        style={{ width: '100%', fontSize: '0.85rem', padding: '2px 4px', border: '1px solid #3b82f6', borderRadius: '4px' }}
-                                                    />
-                                                    <button onClick={saveTitle} style={{ border: 'none', background: 'none', color: '#16a34a', cursor: 'pointer', padding: 0 }}><Check size={14} /></button>
-                                                    <button onClick={cancelEditing} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: 0 }}><X size={14} /></button>
+                                                    <input value={editTitle} onChange={e => setEditTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveTitle(e)} autoFocus style={{ width: '100%', fontSize: '0.85rem', padding: '4px 6px', border: '1px solid #cbd5e1', borderRadius: '4px' }} />
+                                                    <button onClick={saveTitle} style={{ border: 'none', background: '#22c55e', color: 'white', borderRadius: '4px', cursor: 'pointer', padding: '2px' }}><Check size={14} /></button>
                                                 </div>
                                             ) : (
                                                 <>
-                                                    <span style={{ fontSize: '0.9rem', color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' }}>
-                                                        {c.title}
-                                                    </span>
-                                                    <div style={{ display: 'flex', gap: '4px' }}>
-                                                        <button
-                                                            onClick={(e) => startEditing(e, c)}
-                                                            title="Rename"
-                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0 }}
-                                                        >
-                                                            <Edit size={14} />
-                                                        </button>
-                                                        <button
-                                                            onClick={(e) => deleteChat(e, c.id)}
-                                                            title="Delete"
-                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0 }}
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
+                                                    <span style={{ fontSize: '0.85rem', fontWeight: c.id === currentId ? '600' : '400', color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px' }}>{c.title}</span>
+                                                    <div style={{ display: 'flex', gap: '6px' }} className="chat-actions">
+                                                        <button onClick={(e) => startEditing(e, c)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0 }}><Edit size={14} /></button>
+                                                        <button onClick={(e) => deleteChat(e, c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0 }}><Trash2 size={14} /></button>
                                                     </div>
                                                 </>
                                             )}
@@ -473,139 +433,208 @@ export default function AgentChat() {
                         </>
                     )}
 
-                    {/* Header */}
-                    <div style={headerStyle} onMouseDown={onMouseDown}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <button
-                                onClick={() => setShowSidebar(!showSidebar)}
-                                onMouseDown={e => e.stopPropagation()}
-                                style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '4px', padding: '4px', cursor: 'pointer', color: 'white', display: 'flex' }}
-                            >
-                                <Menu size={18} />
-                            </button>
-                            <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{getCurrentChat().title}</span>
+                    <div
+                        style={{
+                            padding: '14px 20px',
+                            background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+                            color: 'white',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            cursor: isFullScreen ? 'default' : 'move',
+                            userSelect: 'none',
+                            flexShrink: 0
+                        }}
+                        onMouseDown={onMouseDown}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <button onClick={() => setShowSidebar(!showSidebar)} title="Menu" onMouseDown={e => e.stopPropagation()} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '6px', cursor: 'pointer', color: 'white', display: 'flex' }}><Menu size={18} /></button>
+                            <span style={{ fontWeight: 600, fontSize: '0.9rem', letterSpacing: '0.01em' }}>{currentChat.title}</span>
                         </div>
-                        <button
-                            onClick={() => setIsOpen(false)}
-                            onMouseDown={e => e.stopPropagation()}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'white', opacity: 0.8 }}
-                        >
-                            <X size={20} />
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <button onClick={() => setIsFullScreen(!isFullScreen)} title={isFullScreen ? "Exit Fullscreen" : "Fullscreen"} onMouseDown={e => e.stopPropagation()} style={{ background: 'none', border: 'none', borderRadius: '6px', padding: '6px', cursor: 'pointer', color: 'white', opacity: 0.7, display: 'flex' }}>
+                                {isFullScreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                            </button>
+                            <button onClick={() => { setIsOpen(false); setIsFullScreen(false); }} title="Minimize" onMouseDown={e => e.stopPropagation()} style={{ background: 'none', border: 'none', borderRadius: '6px', padding: '6px', cursor: 'pointer', color: 'white', opacity: 0.7, display: 'flex' }}>
+                                <Minus size={20} />
+                            </button>
+                        </div>
                     </div>
 
-                    {/* Messages Area */}
                     <div
                         ref={scrollContainerRef}
                         onScroll={onScroll}
                         style={{
                             flex: 1,
-                            minHeight: 0, // CRITICAL for nested flex scrolling
+                            minHeight: 0,
                             overflowY: 'auto',
-                            padding: '16px',
-                            backgroundColor: '#f8fafc',
+                            padding: isFullScreen ? '24px 10%' : '24px 20px',
+                            backgroundColor: '#fdfdfe',
                             display: 'flex',
                             flexDirection: 'column',
-                            gap: '12px'
+                            gap: '16px'
                         }}
                     >
-                        {getCurrentChat().messages?.map((m, i) => (
-                            <div key={i} style={{
-                                alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-                                maxWidth: '85%',
-                                backgroundColor: m.role === 'user' ? '#3b82f6' : '#ffffff',
-                                color: m.role === 'user' ? 'white' : '#1e293b',
-                                padding: '10px 14px',
-                                borderRadius: m.role === 'user' ? '16px 16px 2px 16px' : '16px 16px 16px 2px',
-                                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-                                fontSize: '0.95rem',
-                                lineHeight: '1.5'
-                            }}>
-                                <ReactMarkdown>{m.content}</ReactMarkdown>
+                        {messages.map((m, i) => (
+                            <div
+                                key={i}
+                                style={{
+                                    alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+                                    maxWidth: isFullScreen ? '95%' : '88%',
+                                    width: (isFullScreen && m.role === 'agent') ? '100%' : 'auto',
+                                    backgroundColor: m.role === 'user' ? '#0f172a' : '#f1f5f9',
+                                    color: m.role === 'user' ? 'white' : '#1e293b',
+                                    padding: '16px 22px',
+                                    borderRadius: m.role === 'user' ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
+                                    boxShadow: '0 2px 10px rgba(0,0,0,0.05)',
+                                    fontSize: '0.95rem',
+                                    lineHeight: '1.7'
+                                }}
+                            >
+                                <div className="markdown-content">
+                                    <Markdown>{String(m.content || '')}</Markdown>
+                                </div>
                             </div>
                         ))}
-                        {loading && !getCurrentChat().messages.some(m => m.role === 'agent' && m.content === "") && (
-                            <div style={{ alignSelf: 'flex-start', backgroundColor: '#fff', padding: '10px 14px', borderRadius: '16px', color: '#64748b', fontSize: '0.9rem', fontStyle: 'italic' }}>
-                                Agent is thinking...
+                        {loading && !messages.some(m => m.role === 'agent' && m.content === "") && (
+                            <div style={{ alignSelf: 'flex-start', backgroundColor: '#f1f5f9', padding: '10px 16px', borderRadius: '18px', color: '#64748b', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Sparkles size={14} className="spinning-icon" />
+                                Analyzing data...
                             </div>
                         )}
                         <div ref={messagesEndRef} />
                     </div>
 
-                    {/* Input Area */}
+                    {/* Consolidated Context Selection Dropdown */}
                     <div style={{
-                        padding: '12px',
-                        paddingRight: '24px',
-                        backgroundColor: 'white',
-                        borderTop: '1px solid #e2e8f0',
+                        padding: isFullScreen ? '15px 10%' : '12px 20px',
+                        backgroundColor: '#f8fafc',
+                        borderTop: '1px solid #f1f5f9',
                         display: 'flex',
-                        gap: '8px'
-                    }}>
-                        <input
-                            value={input}
-                            onChange={e => setInput(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && sendMessage()}
-                            placeholder="Ask about your ads..."
+                        alignItems: 'center',
+                        gap: '12px',
+                        position: 'relative',
+                        userSelect: 'none'
+                    }} ref={contextRef}>
+                        <div
+                            onClick={() => setIsContextOpen(!isContextOpen)}
                             style={{
                                 flex: 1,
-                                padding: '10px 14px',
-                                borderRadius: '24px',
-                                border: '1px solid #cbd5e1',
-                                outline: 'none',
-                                fontSize: '0.95rem',
-                                backgroundColor: '#f1f5f9'
-                            }}
-                        />
-                        <button
-                            onClick={sendMessage}
-                            disabled={loading}
-                            style={{
-                                width: '40px',
-                                height: '40px',
-                                borderRadius: '50%',
-                                background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-                                color: 'white',
-                                border: 'none',
-                                cursor: loading ? 'default' : 'pointer',
+                                padding: '8px 14px',
+                                backgroundColor: 'white',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '10px',
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center',
-                                transition: 'opacity 0.2s',
-                                flexShrink: 0
+                                justifyContent: 'space-between',
+                                cursor: 'pointer',
+                                fontSize: '0.85rem',
+                                color: '#475569',
+                                fontWeight: '500',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                             }}
                         >
-                            <Send size={18} />
-                        </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Layout size={16} color="#64748b" />
+                                <span>{selectedTables.length === 0 ? "Select Data Sources" : `${selectedTables.length} Tables Selected`}</span>
+                            </div>
+                            <ChevronDown size={16} />
+                        </div>
+
+                        {isContextOpen && (
+                            <div style={{
+                                position: 'absolute',
+                                bottom: '100%',
+                                left: isFullScreen ? '10%' : '20px',
+                                right: isFullScreen ? '10%' : '20px',
+                                marginBottom: '8px',
+                                backgroundColor: 'white',
+                                borderRadius: '12px',
+                                boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
+                                border: '1px solid #f1f5f9',
+                                overflow: 'hidden',
+                                zIndex: 30,
+                                maxHeight: '300px',
+                                overflowY: 'auto',
+                                animation: 'slideInUp 0.2s ease-out'
+                            }}>
+                                <div style={{ padding: '12px 15px', backgroundColor: '#f8fafc', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Available Context</span>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button onClick={() => setSelectedTables(ALL_TABLES.map(t => t.id))} style={{ border: 'none', background: 'none', fontSize: '11px', color: '#3b82f6', cursor: 'pointer', fontWeight: 600 }}>All</button>
+                                        <button onClick={() => setSelectedTables([])} style={{ border: 'none', background: 'none', fontSize: '11px', color: '#f43f5e', cursor: 'pointer', fontWeight: 600 }}>None</button>
+                                    </div>
+                                </div>
+                                <div style={{ padding: '8px' }}>
+                                    {ALL_TABLES.map(table => (
+                                        <div
+                                            key={table.id}
+                                            onClick={() => toggleTable(table.id)}
+                                            style={{
+                                                padding: '10px 12px',
+                                                borderRadius: '8px',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                fontSize: '0.85rem',
+                                                backgroundColor: selectedTables.includes(table.id) ? '#f0f7ff' : 'transparent',
+                                                color: selectedTables.includes(table.id) ? '#1e40af' : '#475569',
+                                                transition: 'background 0.2s'
+                                            }}
+                                            onMouseOver={(e) => !selectedTables.includes(table.id) && (e.currentTarget.style.backgroundColor = '#f8fafc')}
+                                            onMouseOut={(e) => !selectedTables.includes(table.id) && (e.currentTarget.style.backgroundColor = 'transparent')}
+                                        >
+                                            <span style={{ fontWeight: selectedTables.includes(table.id) ? '600' : '400' }}>{table.label}</span>
+                                            {selectedTables.includes(table.id) ? <CheckSquare size={16} /> : <Square size={16} color="#cbd5e1" />}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div
+                        style={{
+                            padding: isFullScreen ? '20px 10% 40px 10%' : '16px 20px 24px 20px',
+                            backgroundColor: 'white',
+                            borderTop: '1px solid #f1f5f9',
+                            display: 'flex',
+                            gap: '12px',
+                            alignItems: 'center'
+                        }}
+                    >
+                        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} placeholder="Ask me anything..." style={{ flex: 1, padding: '14px 20px', borderRadius: '12px', border: '1px solid #e2e8f0', outline: 'none', fontSize: '0.95rem', backgroundColor: '#f8fafc' }} />
+                        <button onClick={sendMessage} disabled={loading} style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#0f172a', color: 'white', border: 'none', cursor: loading ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Send size={18} /> </button>
                     </div>
                 </div>
             )}
 
-            {/* Toggle Button (Floating Icon - Gemini Style) */}
             {!isOpen && (
                 <button
                     onClick={toggleChat}
                     onMouseDown={onMouseDown}
                     style={{
-                        width: '56px',
-                        height: '56px',
-                        borderRadius: '28px',
-                        background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
+                        width: '64px',
+                        height: '64px',
+                        borderRadius: '24px',
+                        background: '#0f172a',
                         color: 'white',
                         border: 'none',
-                        boxShadow: '0 4px 12px rgba(59, 130, 246, 0.5)',
+                        boxShadow: '0 10px 30px rgba(15, 23, 42, 0.4)',
                         cursor: 'move',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        transition: 'transform 0.2s',
+                        transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+                        position: 'relative',
+                        overflow: 'hidden'
                     }}
-                    onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.05)'}
-                    onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
                 >
-                    <Sparkles size={28} />
+                    <Sparkles size={30} fill="currentColor" style={{ opacity: 0.9 }} />
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent)', pointerEvents: 'none' }} />
                 </button>
             )}
         </div>
     );
-
 }

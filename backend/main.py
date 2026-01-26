@@ -31,6 +31,7 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     messages: List[Message] = []
+    selectedTables: Optional[List[str]] = []
 
 class PreferenceUpdateRequest(BaseModel):
     table_name: str
@@ -53,7 +54,7 @@ def scan_campaigns():
 
 @app.post("/api/chat")
 async def chat_with_agent(req: ChatRequest):
-    return StreamingResponse(agent.chat_stream(req.message, req.messages), media_type="text/plain")
+    return StreamingResponse(agent.chat_stream(req.message, req.messages, req.selectedTables), media_type="text/plain")
 
 @app.get("/api/tables")
 def get_tables():
@@ -66,6 +67,11 @@ def get_table_data(table_name: str, start_date: Optional[str] = None, end_date: 
 @app.get("/api/campaigns/{campaign_name}/details")
 def get_campaign_details(campaign_name: str, start_date: Optional[str] = None, end_date: Optional[str] = None):
     return agent.get_campaign_details(campaign_name, start_date, end_date)
+
+@app.get("/api/anomalies/campaign")
+async def get_campaign_anomalies(target_date: str = None):
+    anomalies = agent.get_campaign_anomalies(target_date=target_date)
+    return anomalies
 
 @app.post("/api/preferences")
 def update_preference(req: PreferenceUpdateRequest):

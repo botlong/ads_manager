@@ -266,3 +266,46 @@ body {
   background: #0f172a;
   border-right: 1px solid var(--chat-border);
 }
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-20px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.spinning-icon {
+  animation: spin 1.5s linear infinite;
+}
+
+.markdown-content p {
+  margin: 0 0 10px 0;
+}
+
+.markdown-content p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-actions {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+div:hover>.chat-actions {
+  opacity: 1;
+}

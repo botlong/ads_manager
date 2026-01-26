@@ -68,10 +68,15 @@
 /* Table Body Styles */
 .excel-table tbody tr {
     transition: background-color 0.15s ease;
+    background: #ffffff;
 }
 
 .excel-table tbody tr:nth-child(even) {
-    background: #fafafa;
+    background: #ffffff;
+}
+
+.excel-table tbody tr:nth-child(odd) {
+    background: #ffffff;
 }
 
 .excel-table tbody tr:hover {
