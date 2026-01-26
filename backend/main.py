@@ -88,6 +88,21 @@ def reset_preferences(req: ResetPreferenceRequest):
     response = agent.reset_preferences(req.table_name)
     return response
 
+# --- Custom Rule API ---
+class CustomRuleRequest(BaseModel):
+    table_name: str
+    rule_prompt: str
+
+@app.post("/api/agent-rules")
+def save_custom_rule(req: CustomRuleRequest):
+    """Save a custom rule to the database"""
+    return agent.save_custom_rule(req.table_name, req.rule_prompt)
+
+@app.get("/api/agent-rules/{table_name}")
+def get_custom_rules(table_name: str):
+    """Get saved custom rules for a table"""
+    return agent.get_custom_rules(table_name)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,5 +1,6 @@
 import os
 import sqlite3
+from datetime import datetime
 import pandas as pd
 from typing import List, Dict, Any, TypedDict, Annotated
 import operator
@@ -258,7 +259,20 @@ def analyze_specific_table(campaign_name: str, table_name: str, start_date: str 
         for f in expert_rules_findings:
             expert_findings_str += f"- [{f['issue']}] {f['evidence']}\n"
 
-    # 4. Invoke Sub-Agent with Expertise
+    # 4. Load Custom Rules for this Table (if any)
+    custom_rule_prompt = ""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT rule_prompt FROM agent_custom_rules WHERE table_name = ? AND is_active = 1", (table_name,))
+        result = cursor.fetchone()
+        if result and result[0]:
+            custom_rule_prompt = f"\n**用户自定义规则 (优先级最高):**\n{result[0]}\n"
+        conn.close()
+    except Exception as e:
+        print(f"Warning: Could not load custom rules for {table_name}: {e}")
+
+    # 5. Invoke Sub-Agent with Expertise
     expert = TABLE_EXPERT_KNOWLEDGE[table_name]
     
     prompt = f"""
@@ -269,7 +283,7 @@ def analyze_specific_table(campaign_name: str, table_name: str, start_date: str 
     
     **Expert Analysis Logic (Strictly follow these tiers)**:
     {expert.get('expert_rules', 'Analyze for efficiency and anomalies.')}
-    
+    {custom_rule_prompt}
     ---
     **Campaign Context**: {campaign_name}
     **Analysis Period**: {start_date or 'ALL'} to {end_date or 'ALL'}
@@ -291,7 +305,7 @@ def analyze_specific_table(campaign_name: str, table_name: str, start_date: str 
     res = sub_llm.invoke(prompt)
     return res.content
 
-@tool
+
 def scan_campaigns_for_anomalies(target_date: str = None) -> str:
     """
     Scans for anomalies using the robust 3-Day Logic (User Defined) and Expert Diagnosis.
@@ -314,33 +328,42 @@ def scan_campaigns_for_anomalies(target_date: str = None) -> str:
     
     for a in anomalies:
         campaign_name = a.get('campaign', 'Unknown')
-        analysis_date = a.get('date') # Last date of the analysis window
+        analysis_date = a.get('date')
+        campaign_type = a.get('campaign_type', 'Unknown')
         
         # 2. Context Guard
         context = ContextGuard.check_risk({"campaign": campaign_name}, analysis_date)
         
-        # 3. Expert Engines
+        # 3. Expert Engines - Route based on Campaign Type
         expert_flags = []
         
-        # a. Search Term
-        st_flags = ExpertEngine.search_term_expert(campaign_name, analysis_date)
-        expert_flags.extend(st_flags)
+        # Determine which experts to call based on campaign_type
+        is_search = 'search' in campaign_type.lower()
+        is_pmax = 'pmax' in campaign_type.lower() or 'performance max' in campaign_type.lower()
         
-        # b. Channel (PMax)
-        ch_flags = ExpertEngine.channel_expert(campaign_name, analysis_date)
-        expert_flags.extend(ch_flags)
+        # a. Search Term Expert (for Search campaigns)
+        if is_search:
+            st_flags = ExpertEngine.search_term_expert(campaign_name, analysis_date)
+            expert_flags.extend(st_flags)
+            kw_flags = ExpertEngine.keyword_expert(campaign_name, analysis_date)
+            expert_flags.extend(kw_flags)
         
-        # c. Product
-        pr_flags = ExpertEngine.product_expert(campaign_name, analysis_date)
-        expert_flags.extend(pr_flags)
+        # b. Channel Expert (for PMax campaigns)
+        if is_pmax:
+            ch_flags = ExpertEngine.channel_expert(campaign_name, analysis_date)
+            expert_flags.extend(ch_flags)
+            pr_flags = ExpertEngine.product_expert(campaign_name, analysis_date)
+            expert_flags.extend(pr_flags)
         
-        # d. Geo
+        # c. Demographics (for all campaigns)
+        demo_flags = ExpertEngine.demographics_expert(campaign_name, 'age', analysis_date)
+        expert_flags.extend(demo_flags)
+        demo_flags = ExpertEngine.demographics_expert(campaign_name, 'gender', analysis_date)
+        expert_flags.extend(demo_flags)
+        
+        # d. Geo Expert (for all campaigns)
         geo_flags = ExpertEngine.geo_expert(campaign_name, analysis_date)
         expert_flags.extend(geo_flags)
-        
-        # e. Keyword
-        kw_flags = ExpertEngine.keyword_expert(campaign_name, analysis_date)
-        expert_flags.extend(kw_flags)
         
         # 4. Aggregate
         final_diag = DiagnosisAggregator.aggregate(
@@ -371,7 +394,7 @@ def scan_campaigns_for_anomalies(target_date: str = None) -> str:
 
     return "\n".join(report)
 
-@tool
+
 def call_pmax_agent(campaign_name: str, issues: List[str], start_date: str = None, end_date: str = None) -> str:
     """
     Calls the PMax Sub-Agent to analyze a specific Performance Max campaign within a date range.
@@ -531,7 +554,7 @@ def call_pmax_agent(campaign_name: str, issues: List[str], start_date: str = Non
 
     return "\n".join(report)
 
-@tool
+
 def call_search_agent(campaign_name: str, issues: List[str], start_date: str = None, end_date: str = None) -> str:
     """
     Calls the Search Sub-Agent to analyze a specific Search campaign within a date range.
@@ -621,197 +644,6 @@ class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add]
     selected_tables: List[str]
 
-class AgentService:
-    def __init__(self):
-        print(f"Initializing Main Agent with model={MAIN_MODEL_NAME}")
-        self.llm = main_llm
-        
-        self.tools = [scan_campaigns_for_anomalies, analyze_specific_table, call_pmax_agent, call_search_agent]
-        self.llm_with_tools = self.llm.bind_tools(self.tools)
-        
-        self._init_prefs_db()
-
-        workflow = StateGraph(AgentState)
-        workflow.add_node("agent", self.call_model)
-        workflow.add_node("tools", ToolNode(self.tools))
-        workflow.set_entry_point("agent")
-        workflow.add_conditional_edges("agent", self.should_continue, {"continue": "tools", "end": END})
-        workflow.add_edge("tools", "agent")
-        self.app = workflow.compile()
-
-    def _init_prefs_db(self):
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_preferences (
-                table_name TEXT,
-                item_identifier TEXT,
-                is_pinned INTEGER DEFAULT 0,
-                display_order INTEGER DEFAULT 0,
-                PRIMARY KEY (table_name, item_identifier)
-            )
-        """)
-        conn.commit()
-        conn.close()
-
-    def call_model(self, state: AgentState):
-        messages = state['messages']
-        selected = state.get('selected_tables', [])
-        
-        # Build dynamic expertise list for the prompt
-        available_experts = []
-        for table_id in selected:
-            if table_id in TABLE_EXPERT_KNOWLEDGE:
-                info = TABLE_EXPERT_KNOWLEDGE[table_id]
-                available_experts.append(f"- 【{info['title']}专家】: 专注于 {info['focus']}。使用工具时传入 table_name='{table_id}'")
-
-        expertise_section = "\n".join(available_experts) if available_experts else "当前未开启任何专项深度诊断 (用户仅关注汇总数据)。"
-
-        if not isinstance(messages[0], SystemMessage):
-            system_prompt = SystemMessage(content=f"""你是 AdsManager Main Agent (任务调度器)。
-你的职责是实时监控广告表现，并协调“专项专家”进行深入诊断。
-
-**当前活跃的专项专家 (仅限以下):**
-{expertise_section}
-
-**时间维度决策:**
-- 你必须根据用户的提问（如“分析本周”、“分析1月1日到18日”）或者通过上下文感知来决定 `start_date` 和 `end_date`。
-- 如果用户没有指定，默认可以不传，或者根据你的判断传最近7天。
-- 将时间范围透传给下层工具函数。
-
-**工作流程:**
-1. **全局扫描**: 首先通过 `scan_campaigns_for_anomalies` 发现存在指标波动的广告系列。
-2. **按需分派**: 如果扫描发现异常，且该活动属于你的职责范围：
-   - **严格限制**: 你【只能】调用上述“当前活跃”列表中的专家工具 `analyze_specific_table`。
-   - 如果某个表不在活跃列表中，严禁自行臆断或尝试调用。
-3. **汇总报告**: 将专家的分析结果整合成一份专业的报告。
-
-**原则:**
-- 只有看到用户选择了某个表，你才会意识到有对应的专家可用。
-- 输出必须专业、准确，使用中文。
-- 深度分析结果必须准确标注来源（例如 "(数据来源: age 表)"）。
-""")
-            messages = [system_prompt] + messages
-            
-        response = self.llm_with_tools.invoke(messages)
-        return {"messages": [response]}
-
-    def should_continue(self, state: AgentState):
-        messages = state['messages']
-        last_message = messages[-1]
-        if last_message.tool_calls:
-            return "continue"
-        return "end"
-
-    async def chat_stream(self, message: str, messages: list, selected_tables: list = None):
-        input_messages = []
-        if messages:
-            for msg in messages:
-                if msg.role == 'user':
-                    input_messages.append(HumanMessage(content=msg.content))
-                elif msg.role == 'agent':
-                    input_messages.append(AIMessage(content=msg.content))
-        
-        input_messages.append(HumanMessage(content=message))
-        
-        # Initialize state with selected tables
-        initial_state = {
-            "messages": input_messages,
-            "selected_tables": selected_tables or []
-        }
-        
-        async for event in self.app.astream_events(initial_state, version="v1"):
-            kind = event["event"]
-            
-            # Stream LLM text output
-            if kind == "on_chat_model_stream":
-                content = event["data"]["chunk"].content
-                if content:
-                    yield content
-            
-            # Stream tool calls (show which sub-agent/tool is being called)
-            elif kind == "on_tool_start":
-                tool_name = event.get("name", "Unknown Tool")
-                tool_input = event.get("data", {}).get("input", {})
-                
-                # Send a special marker for tool calls
-                if tool_name == "scan_campaigns_for_anomalies":
-                    yield f"\n\n🔍 **[调用工具]** 扫描所有广告系列...\n\n"
-                elif tool_name == "call_pmax_agent":
-                    campaign = tool_input.get("campaign_name", "Unknown")
-                    yield f"\n\n🎯 **[调用 PMax Agent]** 分析 {campaign}...\n\n"
-                elif tool_name == "analyze_specific_table":
-                    campaign = tool_input.get("campaign_name", "Unknown")
-                    table = tool_input.get("table_name", "Unknown")
-                    yield f"\n\n🩺 **[专项分析]** 正在调遣专家分析 {campaign} 的 {table} 数据...\n\n"
-                elif tool_name == "call_search_agent":
-                    campaign = tool_input.get("campaign_name", "Unknown")
-                    yield f"\n\n🔎 **[调用 Search Agent]** 分析 {campaign}...\n\n"
-            
-            # Stream tool results (optional, can show completion)
-            elif kind == "on_tool_end":
-                tool_name = event.get("name", "Unknown Tool")
-                # You can optionally show tool completion
-                # yield f"\n✅ [{tool_name}] 完成\n"
-
-    def get_tables(self):
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = [row[0] for row in cursor.fetchall()]
-        conn.close()
-        return tables
-
-    def get_table_data(self, table_name, start_date: str = None, end_date: str = None):
-        conn = get_db_connection()
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        try:
-            pk_col = 'campaign' 
-            if table_name == 'search_term': pk_col = 'search_term'
-            elif table_name == 'product': pk_col = 'item_id' 
-            elif table_name == 'asset': pk_col = 'ad_group' 
-            elif table_name == 'audience': pk_col = 'audience_segment'
-            elif table_name == 'channel': pk_col = 'channels'
-            
-            where_clause = ""
-            params = []
-            
-            if start_date and end_date:
-                where_clause = "WHERE t.date >= ? AND t.date <= ?"
-                params = [start_date, end_date]
-            elif start_date:
-                where_clause = "WHERE t.date >= ?"
-                params = [start_date]
-            elif end_date:
-                where_clause = "WHERE t.date <= ?"
-                params = [end_date]
-            
-            query = f"""
-                SELECT t.*, 
-                       COALESCE(p.is_pinned, 0) as _pinned, 
-                       COALESCE(p.display_order, 999999) as _order
-                FROM {table_name} t
-                LEFT JOIN user_preferences p 
-                ON p.table_name = '{table_name}' AND p.item_identifier = t.{pk_col}
-                {where_clause}
-                ORDER BY _pinned DESC, _order ASC, date DESC
-            """
-            
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            
-            if not rows: return {"columns": [], "data": []}
-
-            columns = [description[0] for description in cursor.description]
-            display_columns = [c for c in columns if c not in ['_pinned', '_order']]
-            
-            data = [dict(row) for row in rows]
-            return {"columns": display_columns, "data": data}
-        except Exception as e:
-            return {"error": str(e)}
-        finally:
-            conn.close()
 
 # --- Standalone Logic (Decoupled from AgentService) ---
 
@@ -838,15 +670,9 @@ def get_campaign_anomalies_logic(target_date: str = None):
             if not target_date:
                 return []
         
-        # Check if target_date is in promotion period
-        for start, end in PROMOTION_PERIODS:
-            if start <= target_date <= end:
-                print(f"Skipping Anomaly Check: {target_date} is inside Promotion Protection Period ({start} to {end})")
-                return [] # Quiet Mode during promotions
-        
-        # 2. Fetch raw data (Last 30 days relative to target_date)
+        # 2. Fetch raw data (Last 45 days relative to target_date)
         query = """
-            SELECT date, campaign, roas, cpa, conversions 
+            SELECT date, campaign, roas, cpa, conversions, budget, campaign_type 
             FROM campaign 
             WHERE date <= ? AND date >= date(?, '-45 days')
             ORDER BY campaign, date ASC
@@ -954,9 +780,29 @@ def get_campaign_anomalies_logic(target_date: str = None):
                 reason_str = " & ".join(efficiency_details)
                 if not reason_str: reason_str = "Efficiency Alert"
 
+                # 4. Integrate Context Guard Risk Assessment
+                risk_info = ContextGuard.check_risk({"campaign": campaign_name}, last_date.strftime('%Y-%m-%d'))
+                
+                risk_label = "🔴 Critical"
+                if risk_info['status'] == "BLOCK": risk_label = "🛡️ Protected (Tag Only)"
+                elif risk_info['status'] == "MARK": risk_label = "⚠️ Warning (Observing)"
+
+                # 5. Get Campaign Type for Expert Routing
+                camp_type = group['campaign_type'].iloc[0] if 'campaign_type' in group.columns else 'Unknown'
+                
+                # Determine suggested experts based on campaign type
+                suggested_experts = []
+                if 'search' in str(camp_type).lower():
+                    suggested_experts = ['search_term', 'keyword', 'age', 'gender']
+                elif 'pmax' in str(camp_type).lower() or 'performance max' in str(camp_type).lower():
+                    suggested_experts = ['channel', 'product', 'location_by_cities_all_campaign']
+                else:
+                    suggested_experts = ['age', 'gender', 'location_by_cities_all_campaign']
+
                 anomalies.append({
                     "id": str(campaign_name),
                     "campaign": campaign_name,
+                    "campaign_type": str(camp_type),
                     "date": last_date.strftime('%Y-%m-%d'),
                     "growth_rate": growth,
                     "current_conv": float(current_conv),
@@ -967,7 +813,10 @@ def get_campaign_anomalies_logic(target_date: str = None):
                     "curr_cpa": float(curr_cpa) if not pd.isna(curr_cpa) else 0.0,
                     "prev_cpa": float(prev_cpa) if not pd.isna(prev_cpa) else 0.0,
                     
-                    "status": "Critical",
+                    "status": risk_label,
+                    "risk_level": risk_info['status'],
+                    "guard_reasons": risk_info['reasons'],
+                    "suggested_experts": suggested_experts,
                     "reason": f"{reason_str} & No Growth"
                 })
         
@@ -1042,18 +891,16 @@ class AgentService:
             
             try:
                 if tool_name == 'scan_campaigns_for_anomalies':
-                    # StructuredTool must be invoked
-                    result = scan_campaigns_for_anomalies.invoke(tool_args)
+                    result = scan_campaigns_for_anomalies(**tool_args)
                     
                 elif tool_name == 'analyze_specific_table':
-                    # Raw function - call directly
                     result = analyze_specific_table(**tool_args)
                 
                 elif tool_name == 'call_pmax_agent':
-                    result = call_pmax_agent.invoke(tool_args)
+                    result = call_pmax_agent(**tool_args)
 
                 elif tool_name == 'call_search_agent':
-                    result = call_search_agent.invoke(tool_args)
+                    result = call_search_agent(**tool_args)
 
                 else:
                     result = f"Error: Unknown tool '{tool_name}'."
@@ -1124,22 +971,22 @@ class AgentService:
 
 **时间维度决策:**
 - 你必须根据用户的提问（如“分析本周”、“分析1月1日到18日”）或者通过上下文感知来决定 `start_date` 和 `end_date`。
-- 如果用户没有指定，默认可以不传，或者根据你的判断传最近7天。
+- 如果用户没有指定，默认使用数据截止日期（如 2026-01-18）的前7天。
 - 将时间范围透传给下层工具函数。
 
-**工作流程:**
-1. **显性化思考**: 在调用任何工具前，你必须先输出一段简短的分析思路（例如：“监测到用户请求...我将启动...”）。这是强制要求。
-2. **全局扫描**: 首先通过 `scan_campaigns_for_anomalies` 发现存在指标波动的广告系列。
-3. **按需分派**: 如果扫描发现异常，且该活动属于你的职责范围：
-   - **严格限制**: 你【只能】调用上述“当前活跃”列表中的专家工具 `analyze_specific_table`。
-   - 如果某个表不在活跃列表中，严禁自行臆断或尝试调用。
-4. **汇总报告**: 将专家的分析结果整合成一份专业的报告。
+**工作流程与汇报原则:**
+1. **显性化思考**: 在调用任何工具前，你必须先输出一段分析思路（例如：“监测到结果...我将启动...”）。
+2. **全量扫描与汇报**: 
+   - 当调用 `scan_campaigns_for_anomalies` 时，如果返回结果包含多个广告系列，你【必须】在汇总汇报中涵盖【所有】被识别出的异常系列。严禁只保留一个或过度简化。
+3. **多维专家调度**: 
+   - 对于每一个被检测出的异常系列，你应当根据其“初步核心原因”（Root Cause）决定调遣哪些专家。
+   - 如果一个系列同时存在主词损耗和人群偏差，你应当在一个轮次内同时启动对应的多个专家工具 `analyze_specific_table`（如 search_term + age + gender）。
+4. **汇总报告**: 将所有专家的深度分析结论进行聚合，生成专业、结构化且全中文化的最终总结。
 
 **原则:**
-- 只有看到用户选择了某个表，你才会意识到有对应的专家可用。
-- 输出必须专业、准确，使用中文。
-- 深度分析结果必须准确标注来源（例如 "(数据来源: age 表)"）。
-- **透明化执行**: 用户需要看到你的思考过程，不要直接跳到工具调用。
+- 只有看到用户勾选了某个表对应的 Agent，你才具备调遣该专家的权限。
+- 输出必须专业、准确。深度分析结果必须准确标注数据来源（例如 "(数据来源: channel 表)"）。
+- **透明化执行**: 用户需要看到你对每一个异常系列的专家分派过程。
 """)
             messages = [system_prompt] + messages
             
@@ -1373,5 +1220,79 @@ class AgentService:
                     result[table] = {"error": str(e), "columns": [], "data": []}
             
             return result
+        finally:
+            conn.close()
+
+    def _init_custom_rules_db(self):
+        """Initialize the custom rules table if it doesn't exist"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS agent_custom_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                table_name TEXT NOT NULL,
+                rule_prompt TEXT,
+                is_active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+    def save_custom_rule(self, table_name: str, rule_prompt: str):
+        """Save or update a custom rule"""
+        self._init_custom_rules_db()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            # Check if rule already exists for this table
+            cursor.execute("SELECT id FROM agent_custom_rules WHERE table_name = ?", (table_name,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                # Update existing rule
+                cursor.execute("""
+                    UPDATE agent_custom_rules 
+                    SET rule_prompt = ?, updated_at = CURRENT_TIMESTAMP 
+                    WHERE table_name = ?
+                """, (rule_prompt, table_name))
+            else:
+                # Insert new rule
+                cursor.execute("""
+                    INSERT INTO agent_custom_rules (table_name, rule_prompt) 
+                    VALUES (?, ?)
+                """, (table_name, rule_prompt))
+            
+            conn.commit()
+            return {"status": "success", "message": "Custom rule saved"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+        finally:
+            conn.close()
+
+    def get_custom_rules(self, table_name: str):
+        """Get custom rules for a specific table"""
+        self._init_custom_rules_db()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT rule_prompt, created_at, updated_at 
+                FROM agent_custom_rules 
+                WHERE table_name = ? AND is_active = 1
+            """, (table_name,))
+            result = cursor.fetchone()
+            
+            if result:
+                return {
+                    "rule_prompt": result[0],
+                    "created_at": result[1],
+                    "updated_at": result[2]
+                }
+            else:
+                return {"rule_prompt": None}
+        except Exception as e:
+            return {"error": str(e)}
         finally:
             conn.close()

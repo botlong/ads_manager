@@ -1,7 +1,7 @@
 import sqlite3
 import pandas as pd
 from typing import List, Dict, Any, Tuple
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 
 # --- Config & Helpers ---
@@ -49,34 +49,59 @@ class ContextGuard:
     def check_risk(campaign_context: Dict[str, Any], target_date: str) -> Dict[str, Any]:
         """
         返回风险评估结果。
-        输出: { "status": "通过" | "拦截" | "降级", "reasons": [...] }
+        输出: { "status": "PASS" | "BLOCK" | "MARK", "reasons": [...] }
         """
         reasons = []
         status = "PASS"
         campaign_name = campaign_context.get('campaign', 'Unknown')
         
-        # 1. 大促期间保护 (Promotion Period)
+        # 1. 大促期与预热期保护 (Promotion & Lead-up)
+        # 预热期: 大促开始前 3 天
         for start, end in ContextGuard.PROMOTION_PERIODS:
-            if start <= target_date <= end:
-                status = "DOWNGRADE"
-                reasons.append(f"处于大促期间 ({start} 至 {end}) - 建议仅观察，避免剧烈调整。")
-        
-        # 2. 冷启动 / 学习期保护 (Cold Start / Learning Phase)
-        query = """
-            SELECT SUM(cost) as cost, SUM(conversions) as conv, COUNT(date) as days
-            FROM campaign
-            WHERE campaign = ? AND date <= ? AND date >= date(?, '-7 days')
-        """
-        res = query_db(query, (campaign_name, target_date, target_date))
-        if res and res[0]['days'] is not None:
-            stats = res[0]
-            # 学习期: 过去7天转化数 < 30 或 历史数据不足14天
-            if (stats['conv'] or 0) < 30:
-                reasons.append("系统学习期 (每周转化数 < 30) - 策略可能尚未稳定。")
+            start_dt = datetime.strptime(start, '%Y-%m-%d')
+            target_dt = datetime.strptime(target_date, '%Y-%m-%d')
+            lead_up_start = start_dt - timedelta(days=3)
             
-            if stats['days'] < 7:
+            if start <= target_date <= end:
+                status = "MARK"
+                reasons.append(f"处于大促期间 ({start} 至 {end}) - 触发保护机制，建议观察。")
+            elif lead_up_start <= target_dt < start_dt:
+                status = "MARK"
+                reasons.append(f"大促预热期 (大促将于 {start} 开始) - 数据可能剧烈波动，仅做标记。")
+        
+        # 2. 调价冷却期保护 (72H Budget Shift)
+        # 查询过去 3 天的预算历史
+        budget_query = """
+            SELECT budget FROM campaign 
+            WHERE campaign = ? AND date <= ? AND date >= date(?, '-3 days')
+            ORDER BY date DESC
+        """
+        budgets = query_db(budget_query, (campaign_name, target_date, target_date))
+        if budgets and len(budgets) >= 2:
+            budget_values = [b['budget'] for b in budgets if b['budget'] is not None]
+            if len(set(budget_values)) > 1:
+                status = "MARK"
+                reasons.append("调价冷却期: 过去 72 小时内检测到预算变动，数据尚未稳定，建议维持现状。")
+
+        # 3. 冷启动 / 学习期保护 (Cold Start / Learning Phase)
+        query = """
+            SELECT SUM(cost) as cost, SUM(conversions) as conv, COUNT(date) as days, MIN(date) as first_day
+            FROM campaign
+            WHERE campaign = ? AND date <= ?
+        """
+        res = query_db(query, (campaign_name, target_date))
+        if res and res[0]['first_day'] is not None:
+            stats = res[0]
+            first_day_dt = datetime.strptime(stats['first_day'], '%Y-%m-%d')
+            target_dt = datetime.strptime(target_date, '%Y-%m-%d')
+            days_diff = (target_dt - first_day_dt).days
+            
+            if days_diff < 7:
                 status = "BLOCK"
-                reasons.append(f"冷启动期: 该系列仅有 {stats['days']} 天数据，建议积累至 7 天。")
+                reasons.append(f"冷启动保护: 该系列上线仅 {days_diff + 1} 天 (不足 7 天)，严禁进行削减操作。")
+            elif (stats['conv'] or 0) < 30:
+                 # 学习期通常判定为“系统提示”而非硬性风险拦截
+                 reasons.append("进入学习期: 累计转化数 < 30，系统仍在优化人群模型。")
 
         return {"status": status, "reasons": reasons}
 
@@ -352,17 +377,17 @@ class DiagnosisAggregator:
         else:
             confidence = "低 (仅有趋势信号)"
 
-        # 执行动作建议
+        # 执行动作建议核心逻辑
         if context_status['status'] == 'BLOCK':
-            action_level = "仅观察 (受安全机制管控)"
-        elif context_status['status'] == 'DOWNGRADE':
-            action_level = "深度诊断 (被动监控中)"
+            action_level = "✋ 风险拦截 (冷启动保护期，仅做标记)"
+        elif context_status['status'] == 'MARK':
+            action_level = "⚠️ 标记观察 (处于调价或大促预热期)"
         elif high_sev:
-            action_level = "立即优化 (建议执行)"
+            action_level = "🚀 立即优化 (建议执行操作)"
         elif expert_flags:
-            action_level = "深度诊断 (需要详细排查)"
+            action_level = "🔍 深度诊断 (建议详细排查数据)"
         else:
-            action_level = "仅观察"
+            action_level = "👀 仅做标记 (未命中特定模式)"
 
         coverage = 0.90 
         

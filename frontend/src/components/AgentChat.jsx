@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Markdown from 'react-markdown';
 import { MessageSquare, X, Menu, Plus, Send, Trash2, Edit, Check, Sparkles, Maximize2, Minimize2, Minus, Layout, Table, AlertTriangle, ChevronDown, CheckSquare, Square } from 'lucide-react';
+import CustomRuleEditor from './CustomRuleEditor';
+import PerAgentRuleEditor from './PerAgentRuleEditor';
 
 export default function AgentChat() {
     const [isOpen, setIsOpen] = useState(false);
@@ -14,6 +16,11 @@ export default function AgentChat() {
     // --- Table Selection State ---
     const [selectedTables, setSelectedTables] = useState(['Anomalies', 'Campaigns', 'Products', 'channel', 'search_term']);
     const [isContextOpen, setIsContextOpen] = useState(false);
+
+    // --- Custom Rule Editor State ---
+    const [customRuleText, setCustomRuleText] = useState("");
+    const [showRuleEditor, setShowRuleEditor] = useState(false);
+    const [ruleSaveStatus, setRuleSaveStatus] = useState(null); // 'saving', 'saved', 'error'
 
     const [editingId, setEditingId] = useState(null);
     const [editTitle, setEditTitle] = useState("");
@@ -119,6 +126,39 @@ export default function AgentChat() {
                 ? prev.filter(t => t !== tableName)
                 : [...prev, tableName]
         );
+    };
+
+    // --- Custom Rule Handlers ---
+    const applyRuleOnce = () => {
+        // The rule will be passed with the next message only
+        if (customRuleText.trim()) {
+            setRuleSaveStatus('applied');
+            setTimeout(() => setRuleSaveStatus(null), 2000);
+        }
+    };
+
+    const applyRulePermanently = async () => {
+        if (!customRuleText.trim()) return;
+        setRuleSaveStatus('saving');
+        try {
+            const response = await fetch('http://localhost:8000/api/agent-rules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    table_name: 'global',
+                    rule_prompt: customRuleText
+                })
+            });
+            if (response.ok) {
+                setRuleSaveStatus('saved');
+                setTimeout(() => setRuleSaveStatus(null), 2000);
+            } else {
+                setRuleSaveStatus('error');
+            }
+        } catch (e) {
+            console.error('Failed to save rule:', e);
+            setRuleSaveStatus('error');
+        }
     };
 
     const sendMessage = async () => {
@@ -590,11 +630,23 @@ export default function AgentChat() {
                                             onMouseOver={(e) => !selectedTables.includes(table.id) && (e.currentTarget.style.backgroundColor = '#f8fafc')}
                                             onMouseOut={(e) => !selectedTables.includes(table.id) && (e.currentTarget.style.backgroundColor = 'transparent')}
                                         >
-                                            <span style={{ fontWeight: selectedTables.includes(table.id) ? '600' : '400' }}>{table.label}</span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', position: 'relative' }}>
+                                                <span style={{ fontWeight: selectedTables.includes(table.id) ? '600' : '400' }}>{table.label}</span>
+                                                <PerAgentRuleEditor tableId={table.id} tableLabel={table.label} isSelected={selectedTables.includes(table.id)} />
+                                            </div>
                                             {selectedTables.includes(table.id) ? <CheckSquare size={16} /> : <Square size={16} color="#cbd5e1" />}
                                         </div>
                                     ))}
                                 </div>
+                                <CustomRuleEditor
+                                    customRuleText={customRuleText}
+                                    setCustomRuleText={setCustomRuleText}
+                                    showRuleEditor={showRuleEditor}
+                                    setShowRuleEditor={setShowRuleEditor}
+                                    applyRuleOnce={applyRuleOnce}
+                                    applyRulePermanently={applyRulePermanently}
+                                    ruleSaveStatus={ruleSaveStatus}
+                                />
                             </div>
                         )}
                     </div>

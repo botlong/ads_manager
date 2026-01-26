@@ -1,0 +1,27 @@
+--- search_term ---
+date, search_term, match_type, added_excluded, campaign, ad_group, impr, interactions, interaction_rate, currency_code, avg_cost, cost, campaign_type, conv_rate, conversions, cost___conv
+
+--- channel ---
+date, channels, status, campaigns, impr, clicks, interactions, conversions, conv_value, currency_code, cost, results, results_value, reports
+
+--- product ---
+date, image, title, item_id, merchant_id, status, issues, price, clicks, impr, ctr, currency_code, avg_cpc, cost
+
+--- location_by_cities_all_campaign ---
+date, location, campaign, impr, interactions, interaction_rate, currency_code, avg_cost, cost, conv_rate, conversions, cost___conv
+
+--- keyword ---
+date, keyword_status, keyword, match_type, campaign, ad_group, status, status_reasons, currency_code, max_cpc, final_url, impr, interactions, interaction_rate, avg_cost, cost, clicks, conv_rate, conv_value, conv_value___cost, conversions, avg_cpc, cost___conv
+
+--- age ---
+date, demographic_status, age, campaign, ad_group, status, bid_adj, impr, interactions, interaction_rate, currency_code, avg_cost, cost, conv_rate, conversions, cost___conv
+
+--- gender ---
+date, demographic_status, gender, campaign, ad_group, status, bid_adj, impr, interactions, interaction_rate, currency_code, avg_cost, cost, conv_rate, conversions, cost___conv
+
+--- time ---
+
+
+--- campaign ---
+date, campaign, roas, cpa, roas_before_7d_average, cpa_before_7d_average, roas_compare, cpa_compare, budget, campaign_status, budget_name, budget_type, currency_code, status, status_reasons, optimization_score, campaign_type, impr, interactions, interaction_rate, avg_cost, cost, bid_strategy_type, clicks, conv_rate, conv_value, conv_value___cost, conversions, avg_cpc, cost___conv
+
