@@ -4,14 +4,17 @@ import pandas as pd
 from typing import List, Dict, Any, TypedDict, Annotated
 import operator
 import json
+import uuid
 from dotenv import load_dotenv
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.tools import tool
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+from langchain_core.tools import tool, InjectedToolCallId
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
+
+from expert_system import ContextGuard, ExpertEngine, DiagnosisAggregator
 
 # Load env vars
 load_dotenv()
@@ -32,7 +35,8 @@ main_llm = ChatOpenAI(
     base_url=BASE_URL,
     api_key=API_KEY,
     temperature=0,
-    streaming=True
+    streaming=True,
+    request_timeout=60 # Force fallback if thinking takes too long
 )
 
 # --- Table Expert Knowledge ---
@@ -205,11 +209,18 @@ def analyze_specific_table(campaign_name: str, table_name: str, start_date: str 
         context_str = f"Main Campaign Avg: Cost ${s.get('cost')}, ROAS {s.get('roas')}, CPA ${s.get('cpa')}, Conv {s.get('conversions')}"
 
     campaign_col = 'campaign'
-    if table_name == 'channel': campaign_col = 'campaigns'
+    if table_name == 'channel': 
+        campaign_col = 'campaigns'
+    elif table_name == 'product':
+        campaign_col = '1' # Special case: product table lacks campaign pivot, disable filter
 
     # 2. Fetch Targeted Table Data with Date Filter
-    where_conditions = [f"{campaign_col} = ?"]
-    params = [campaign_name]
+    where_conditions = []
+    params = []
+    
+    if table_name != 'product':
+        where_conditions.append(f"{campaign_col} = ?")
+        params.append(campaign_name)
     
     if start_date:
         where_conditions.append("date >= ?")
@@ -218,14 +229,36 @@ def analyze_specific_table(campaign_name: str, table_name: str, start_date: str 
         where_conditions.append("date <= ?")
         params.append(end_date)
         
-    where_clause = " AND ".join(where_conditions)
+    where_clause = " AND ".join(where_conditions) if where_conditions else "1=1"
     query = f"SELECT * FROM {table_name} WHERE {where_clause} ORDER BY CAST(cost AS REAL) DESC LIMIT 15"
     table_data = query_db(query, tuple(params))
     
     if not table_data:
         return f"Found no data in '{table_name}' for campaign '{campaign_name}'."
 
-    # 3. Invoke Sub-Agent with Expertise
+    # 3. Apply Expert Rules (Deterministic First)
+    expert_rules_findings = []
+    try:
+        if table_name == 'search_term':
+            expert_rules_findings = ExpertEngine.search_term_expert(campaign_name, start_date or end_date or datetime.now().strftime('%Y-%m-%d'))
+        elif table_name == 'channel':
+            expert_rules_findings = ExpertEngine.channel_expert(campaign_name, start_date or end_date or datetime.now().strftime('%Y-%m-%d'))
+        elif table_name == 'product':
+            expert_rules_findings = ExpertEngine.product_expert(campaign_name, start_date or end_date or datetime.now().strftime('%Y-%m-%d'))
+        elif table_name in ['age', 'gender']:
+            expert_rules_findings = ExpertEngine.demographics_expert(campaign_name, table_name, start_date or end_date or datetime.now().strftime('%Y-%m-%d'))
+        elif table_name == 'keyword':
+            expert_rules_findings = ExpertEngine.keyword_expert(campaign_name, start_date or end_date or datetime.now().strftime('%Y-%m-%d'))
+    except Exception as e:
+        print(f"Expert Engine Error in analyze_specific_table: {e}")
+
+    expert_findings_str = ""
+    if expert_rules_findings:
+        expert_findings_str = "**Expert System Findings (Deterministic Rules)**:\n"
+        for f in expert_rules_findings:
+            expert_findings_str += f"- [{f['issue']}] {f['evidence']}\n"
+
+    # 4. Invoke Sub-Agent with Expertise
     expert = TABLE_EXPERT_KNOWLEDGE[table_name]
     
     prompt = f"""
@@ -242,71 +275,101 @@ def analyze_specific_table(campaign_name: str, table_name: str, start_date: str 
     **Analysis Period**: {start_date or 'ALL'} to {end_date or 'ALL'}
     **Aggregate Benchmark**: {context_str}
     
+    {expert_findings_str}
+    
     **Raw Data (Sorted by significance):**
     {safe_truncate_data(table_data, MAX_CONTEXT_CHARACTERS)}
     
     ---
     **Output Requirements**:
-    1. **Data Coverage**: Start with "Data Coverage Index: X% of campaign cost analyzed".
+    1. **Findings Integration**: If the Expert System found specific issues (above), validate them with the raw data and explain the 'Why' to the user.
     2. **Status & Confidence**: Clearly state "Status: [Too early to optimize | Actionable]" and "Confidence: [High|Medium|Low]".
-    3. **Actionable Actions**: Audit existing bid modifiers. Suggest changes ONLY if Tier 3 (Actionable) thresholds are met.
-    4. **Logic**: Briefly explain which Tier the data falls into.
-    5. Output in concise Markdown (Chinese).
+    3. **Actionable Actions**: Audit existing bid modifiers. Suggest changes ONLY if thresholds are met.
+    4. Output in concise Markdown (Chinese).
     """
 
     res = sub_llm.invoke(prompt)
     return res.content
 
 @tool
-def scan_campaigns_for_anomalies() -> str:
+def scan_campaigns_for_anomalies(target_date: str = None) -> str:
     """
-    Scans the 'campaign' table to identify statistically significant anomalies.
-    Rules:
-    1. ROAS Drop: Current ROAS < Previous 7d Avg * 0.7 (30% drop)
-    2. CPA Rise: Current CPA > Previous 7d Avg * 1.3 (30% rise)
-    3. Stability: Cost > $20 (Ignore noise in tiny budgets)
-    """
-    query = """
-        SELECT campaign, campaign_type, cost, roas, roas_before_7d_average, cpa, cpa_before_7d_average, conversions
-        FROM campaign
-    """
-    rows = query_db(query)
-    anomalies = []
+    Scans for anomalies using the robust 3-Day Logic (User Defined) and Expert Diagnosis.
     
-    for row in rows:
-        try:
-            conv = float(row['conversions']) if row['conversions'] else 0
-            cost = float(row['cost']) if row['cost'] else 0
-            roas = float(row['roas']) if row['roas'] else 0
-            roas_avg = float(row['roas_before_7d_average']) if row['roas_before_7d_average'] else 0
-            cpa = float(row['cpa']) if row['cpa'] else 0
-            cpa_avg = float(row['cpa_before_7d_average']) if row['cpa_before_7d_average'] else 0
-        except: continue
-
-        c_name = row['campaign']
-        if not c_name or c_name in ['--', 'Total', 'None']: continue
-
-        issues = []
-        
-        # Stability check & ROAS Drop
-        if roas_avg > 0 and roas < (roas_avg * 0.7) and cost > 20:
-             issues.append(f"Significant ROAS Drop (Current {roas:.2f} vs Avg {roas_avg:.2f})")
-        
-        # CPA Rise
-        if cpa_avg > 0 and cpa > (cpa_avg * 1.3) and cost > 20:
-             issues.append(f"Significant CPA Rise (Current {cpa:.2f} vs Avg {cpa_avg:.2f})")
-
-        if issues:
-            anomalies.append({
-                "campaign_name": c_name,
-                "issues": issues,
-                "confidence_signal": "High" if conv >= 3 else "Medium"
-            })
-
+    Workflow:
+    1. Trigger: Detect continuity & growth issues.
+    2. Guard: Check business context (Promotion, Cold Start).
+    3. Experts: Run specialized diagnostic engines (SearchTerm, Channel, Product, Geo).
+    4. Report: Aggregate findings into a decision-grade report.
+    """
+    # 1. Main Agent Trigger
+    anomalies = get_campaign_anomalies_logic(target_date) 
+    
     if not anomalies:
-        return "No significant anomalies detected."
+         return "✅ Efficiency Check Passed: No campaigns triggered the strict 3-Day ROAS/CPA alerts."
+
+    # Format for LLM
+    report = ["### 🚨 Anomaly Guard Report (Expert System Diagonosis)"]
+    report.append(f"**Trigger**: ROAS < 80% Avg OR CPA > 125% Avg (Last 3 Days) + No Growth.\n")
     
-    return json.dumps(anomalies, indent=2)
+    for a in anomalies:
+        campaign_name = a.get('campaign', 'Unknown')
+        analysis_date = a.get('date') # Last date of the analysis window
+        
+        # 2. Context Guard
+        context = ContextGuard.check_risk({"campaign": campaign_name}, analysis_date)
+        
+        # 3. Expert Engines
+        expert_flags = []
+        
+        # a. Search Term
+        st_flags = ExpertEngine.search_term_expert(campaign_name, analysis_date)
+        expert_flags.extend(st_flags)
+        
+        # b. Channel (PMax)
+        ch_flags = ExpertEngine.channel_expert(campaign_name, analysis_date)
+        expert_flags.extend(ch_flags)
+        
+        # c. Product
+        pr_flags = ExpertEngine.product_expert(campaign_name, analysis_date)
+        expert_flags.extend(pr_flags)
+        
+        # d. Geo
+        geo_flags = ExpertEngine.geo_expert(campaign_name, analysis_date)
+        expert_flags.extend(geo_flags)
+        
+        # e. Keyword
+        kw_flags = ExpertEngine.keyword_expert(campaign_name, analysis_date)
+        expert_flags.extend(kw_flags)
+        
+        # 4. Aggregate
+        final_diag = DiagnosisAggregator.aggregate(
+            campaign_name, 
+            trigger_info={"triggered": True, "details": a}, 
+            expert_flags=expert_flags, 
+            context_status=context
+        )
+        
+        # 5. 构建报告小节
+        d = final_diag['diagnosis']
+        report.append(f"#### ⚠️ {campaign_name}")
+        report.append(f"**核心根本原因**: {d['root_cause']}")
+        report.append(f"**置信度**: {d['confidence']} | **行动建议等级**: {d['action_level']}")
+        
+        if context['status'] != 'PASS':
+            report.append(f"**🛡️ 风险控制 (Context Guard)**: {', '.join(context['reasons'])}")
+            
+        if final_diag['flags']:
+            report.append("**关键发现**:")
+            for f in final_diag['flags']:
+                report.append(f"- **[{f['expert']}]** {f['issue']}: {f['evidence']}")
+        else:
+            report.append("*未发现明显的结构性或流量异常。可能属于纯宏观效率波动。*")
+            
+        report.append(f"\n*追踪: 逻辑版本 v1.0 | 规则覆盖率: {final_diag['trace_log']['coverage_ratio']*100:.0f}%*")
+        report.append("")
+
+    return "\n".join(report)
 
 @tool
 def call_pmax_agent(campaign_name: str, issues: List[str], start_date: str = None, end_date: str = None) -> str:
@@ -340,47 +403,48 @@ def call_pmax_agent(campaign_name: str, issues: List[str], start_date: str = Non
             tuple(params)
         )
         
+        total_pmax_cost = sum([float(c.get('cost', 0) or 0) for c in channels_data])
+        
         if channels_data:
-            report.append("#### 📡 A. Channel Analysis (数据来源: channel 表)")
-            anomalies_found = False
+            report.append("#### 📡 A. Channel Analysis (Data Source: channel table)")
+            
+            # --- PMax Traffic Washing Logic ---
+            display_spend = 0
+            display_roas = 0
+            video_spend = 0
             
             for c in channels_data:
                 channel_name = c.get('channels', 'Unknown')
-                
-                # Safe float conversion
                 cost = float(c.get('cost', 0) or 0)
-                conv = float(c.get('conversions', 0) or 0)
-                clicks = float(c.get('clicks', 0) or 0)
                 val = float(c.get('conv_value', 0) or 0)
                 
-                # Calculate Metrics
-                roas = (val / cost) if cost > 0 else 0.0
-                cpa = (cost / conv) if conv > 0 else 0.0
-                cvr = (conv / clicks * 100) if clicks > 0 else 0.0
-                aov = (val / conv) if conv > 0 else 0.0
-                
-                # Anomaly Detection (Thresholds)
-                channel_issues = []
-                if roas < 1.0 and cost > 10: channel_issues.append(f"Low ROAS ({roas:.2f})")
-                if cpa > 50 and conv > 0: channel_issues.append(f"High CPA ({cpa:.2f})")
-                if cvr < 1.0 and clicks > 50: channel_issues.append(f"Low CVR ({cvr:.1f}%)")
-                
-                # Format output
-                metrics_str = f"Cost: ${cost:.2f} | ROAS: {roas:.2f} | CPA: ${cpa:.2f} | CVR: {cvr:.1f}% | AOV: ${aov:.2f}"
-                
-                if channel_issues:
-                    anomalies_found = True
-                    report.append(f"- ⚠️ **{channel_name}**: {', '.join(channel_issues)}")
-                    report.append(f"  ({metrics_str})")
-                else:
-                    report.append(f"- ✅ **{channel_name}**: Performing normally.")
-                    report.append(f"  ({metrics_str})")
+                if 'Display' in channel_name:
+                    display_spend += cost
+                    display_roas = (val / cost) if cost > 0 else 0
+                if 'Video' in channel_name:
+                    video_spend += cost
             
-            if not anomalies_found:
-                report.append("👉 No specific channel anomalies detected among active channels.")
+            display_share = (display_spend / total_pmax_cost * 100) if total_pmax_cost > 0 else 0
+            
+            # Logic 1: Display Waste Check
+            if display_share > 35 and display_roas < 1.0:
+                 report.append(f"⚠️ **PMax 流量洗样判定 (Traffic Washing Detected)**")
+                 report.append(f"   - **现象**: Display Channel is consuming {display_share:.1f}% of budget with low ROAS ({display_roas:.2f}).")
+                 report.append("   - **专家经验**: 若 Display 消耗占比 > 35% 且其 ROAS < 全账户均值 50%，判定为 PMax 正在吞噬低质流量 (PMax is dumping budget into cheap inventory).")
+                 report.append("   - **建议**: Consider tightening audience signals or excluding placements.")
+            
+            # Logic 2: Cross-Channel Check
+            for c in channels_data:
+                channel_name = c.get('channels', 'Unknown')
+                cost = float(c.get('cost', 0) or 0)
+                val = float(c.get('conv_value', 0) or 0)
+                roas = (val / cost) if cost > 0 else 0.0
+                
+                metrics_str = f"Cost: ${cost:.2f} | ROAS: {roas:.2f}"
+                report.append(f"- **{channel_name}**: {metrics_str}")
+
             report.append("")
         else:
-            report.append("#### 📡 A. Channel Analysis")
             report.append("ℹ️ No active channel data found for this campaign.")
             report.append("")
 
@@ -388,7 +452,7 @@ def call_pmax_agent(campaign_name: str, issues: List[str], start_date: str = Non
         report.append(f"Error in Channel Analysis: {e}")
 
     # B. Product Analysis (The "Shelf")
-    # Logic: Zombie (Cost > 50, Conv=0), Inefficient (ROAS < 0.5)
+    # Logic: Structural Profitability Check
     try:
         products = query_db("SELECT title, item_id, cost, conversions, conv_value_cost FROM product ORDER BY CAST(cost AS REAL) DESC LIMIT 10")
         zombies = []
@@ -401,29 +465,36 @@ def call_pmax_agent(campaign_name: str, issues: List[str], start_date: str = Non
             item_id = p.get('item_id', 'N/A')
             title = p.get('title', 'Unknown')
             
-            if cost > 50 and conv == 0:
-                zombies.append(f"{title} (ID: {item_id}) - Cost ${cost:.2f}, 0 Conv")
-            elif cost > 20 and roas < 0.5:
-                inefficient.append(f"{title} (ID: {item_id}) - ROAS {roas:.2f}, Cost ${cost:.2f}")
+            # Cold Start Protection (Simulated): If cost < 30, ignore unless 0 conv for long time (not checked here)
+            if cost > 30: 
+                if cost > 50 and conv == 0:
+                    zombies.append(f"{title} (ID: {item_id}) - Cost ${cost:.2f}, 0 Conv")
+                elif cost > 20 and roas < 0.5:
+                    inefficient.append(f"{title} (ID: {item_id}) - ROAS {roas:.2f}")
 
-        report.append("#### 📦 B. Product Analysis (数据来源: product 表 - Account Level)")
-        product_json = safe_truncate_data(products, MAX_CONTEXT_CHARACTERS // 4) # Split quota among sections
-        report.append(f"```json\n{product_json}\n```")
+        report.append("#### 📦 B. Product Analysis (Source: product table)")
         
         if zombies:
-            report.append("❌ **Zombie Products (> $50, 0 Conv)**:")
+            report.append("❌ **Zombie Products (High Cost, 0 Conv)**:")
             for z in zombies: report.append(f"  - {z}")
         if inefficient:
-            report.append("⚠️ **Inefficient Products (ROAS < 0.5)**:")
+            report.append("⚠️ **结构性损耗判定 (Structural Profit Issue)**:")
             for i in inefficient: report.append(f"  - {i}")
+            report.append("   - **专家经验**: 若低 ROAS 商品集中在低毛利 SKU，判定为 结构性毛利问题而非单纯流量问题 (Structural margin issue, not just traffic).")
+            report.append("   - **注意**: Unless these are high-margin (>80%) traffic drivers, they are bleeding profit.")
+        
+        if not zombies and not inefficient:
+             report.append("✅ Top spending products are performing within acceptable range.")
+        
+        report.append("")
+
     except Exception as e:
         report.append(f"Error in Product Analysis: {e}")
 
     # C. Location Analysis
-    # Logic: Cost > 50, Conv=0
     try:
         locs = query_db("SELECT matched_location, cost, conversions FROM location_by_cities_all_campaign WHERE campaign = ? AND CAST(cost AS REAL) > 50 AND CAST(conversions AS REAL) = 0 ORDER BY CAST(cost AS REAL) DESC LIMIT 3", (campaign_name,))
-        report.append("#### 🌍 C. Location Analysis (数据来源: location_by_cities_... 表)")
+        report.append("#### 🌍 C. Location Analysis")
         if locs:
             report.append("❌ **Money Wasting Locations**:")
             for l in locs:
@@ -436,7 +507,6 @@ def call_pmax_agent(campaign_name: str, issues: List[str], start_date: str = Non
         report.append(f"Error in Location Analysis: {e}")
 
     # D. Search Term Analysis (PMax Search Terms)
-    # Logic: Look for bad patterns (free, repair, etc.)
     try:
         bad_keywords = ['free', 'repair', 'login', 'support', 'manual', 'review']
         terms = query_db("SELECT search_term, cost, conversions FROM search_term WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 20", (campaign_name,))
@@ -448,7 +518,7 @@ def call_pmax_agent(campaign_name: str, issues: List[str], start_date: str = Non
             if any(bk in term for bk in bad_keywords):
                 found_bad_terms.append(f"'{term}' (Cost ${cost})")
         
-        report.append("#### 🔍 D. Search Term Analysis (数据来源: search_term 表)")
+        report.append("#### 🔍 D. Search Term Analysis")
         if found_bad_terms:
             report.append("⚠️ **Irrelevant Search Terms Detected**:")
             for ft in found_bad_terms: report.append(f"- {ft}")
@@ -458,121 +528,6 @@ def call_pmax_agent(campaign_name: str, issues: List[str], start_date: str = Non
             
     except Exception as e:
         report.append(f"Error in Search Term Analysis: {e}")
-
-    # E. Asset Analysis
-    try:
-        assets = query_db("""
-            SELECT ad_group, campaign, cost, conversions, roas, status
-            FROM asset
-            WHERE ad_group LIKE ? OR campaign LIKE ?
-            ORDER BY CAST(cost AS REAL) DESC
-            LIMIT 15
-        """, (f"%{campaign_name}%", f"%{campaign_name}%"))
-        
-        report.append("#### 🎨 E. Asset Analysis (数据来源: asset 表)")
-        
-        if assets:
-            # Use ROAS to identify poor performers since 'performance' field doesn't exist
-            poor_assets = [f"{a.get('ad_group', 'Unknown')}: ROAS {float(a.get('roas', 0) or 0):.2f}, ${float(a.get('cost', 0) or 0):.2f}"
-                          for a in assets if float(a.get('roas', 0) or 0) < 1.5 and float(a.get('cost', 0) or 0) > 30][:5]
-            
-            if poor_assets:
-                report.append("❌ **Low-Performing Assets (ROAS < 1.5)**:")
-                for pa in poor_assets: report.append(f"  - {pa}")
-                report.append("👉 **Action**: Review and optimize underperforming ad groups.")
-            else:
-                report.append("✅ No major asset performance issues.")
-            report.append("")
-        else:
-            report.append("ℹ️ No asset data available.")
-            report.append("")
-    except Exception as e:
-        report.append(f"Error in Asset Analysis: {e}")
-        report.append("")
-
-    # F. Audience Signal Analysis
-    try:
-        audiences = query_db("""
-            SELECT audience_segment, cost, conversions, conv_value_cost
-            FROM audience WHERE campaign LIKE ?
-            ORDER BY CAST(cost AS REAL) DESC LIMIT 10
-        """, (f"%{campaign_name}%",))
-        
-        report.append("#### 👥 F. Audience Signal Analysis (数据来源: audience 表)")
-        
-        if audiences:
-            weak = [f"{a.get('audience_segment')} - ${float(a.get('cost', 0) or 0):.2f}, ROAS {float(a.get('conv_value_cost', 0) or 0):.2f}"
-                   for a in audiences if float(a.get('cost', 0) or 0) > 50 and float(a.get('conv_value_cost', 0) or 0) < 2.0][:3]
-            
-            if weak:
-                report.append("⚠️ **Weak Audience Signals**:")
-                for w in weak: report.append(f"  - {w}")
-                report.append("👉 **Action**: Consider removing these signals.")
-            else:
-                report.append("✅ Audience signals performing adequately.")
-            report.append("")
-        else:
-            report.append("ℹ️ No audience signal data.")
-            report.append("")
-    except Exception as e:
-        report.append(f"Error in Audience Analysis: {e}")
-        report.append("")
-
-    # G. Demographics (Age + Gender)
-    try:
-        age_data = query_db("SELECT age, cost, conv_value_cost FROM age WHERE campaign LIKE ? AND CAST(cost AS REAL) > 50 ORDER BY CAST(cost AS REAL) DESC LIMIT 5", (f"%{campaign_name}%",))
-        gender_data = query_db("SELECT gender, cost, conv_value_cost FROM gender WHERE campaign LIKE ? ORDER BY CAST(cost AS REAL) DESC", (f"%{campaign_name}%",))
-        
-        report.append("#### 🎯 G. Demographics (数据来源: age, gender 表)")
-        
-        demo_issues = []
-        for age in age_data:
-            if float(age.get('conv_value_cost', 0) or 0) < 1.5:
-                demo_issues.append(f"Age {age.get('age')}: ${float(age.get('cost', 0) or 0):.0f}, ROAS {float(age.get('conv_value_cost', 0) or 0):.2f}")
-        for gen in gender_data:
-            if float(gen.get('cost', 0) or 0) > 100 and float(gen.get('conv_value_cost', 0) or 0) < 2.0:
-                demo_issues.append(f"Gender {gen.get('gender')}: ${float(gen.get('cost', 0) or 0):.0f}, ROAS {float(gen.get('conv_value_cost', 0) or 0):.2f}")
-        
-        if demo_issues:
-            report.append("⚠️ **Underperforming Demographics**:")
-            for di in demo_issues[:4]: report.append(f"  - {di}")
-            report.append("👉 **Action**: Consider bid adjustments.")
-        else:
-            report.append("✅ Demographics look balanced.")
-        report.append("")
-    except Exception as e:
-        report.append(f"Error in Demographics: {e}")
-        report.append("")
-
-    # H. Ad Schedule
-    try:
-        schedules = query_db("SELECT day_and_time, cost, conversions, conv_value_cost FROM ad_schedule WHERE campaign LIKE ? AND CAST(cost AS REAL) > 20 ORDER BY CAST(cost AS REAL) DESC LIMIT 10", (f"%{campaign_name}%",))
-        
-        report.append("#### ⏰ H. Ad Schedule Analysis (数据来源: ad_schedule 表)")
-        
-        if schedules:
-            # Parse day_and_time field (e.g., "Monday 14:00")
-            bad_slots = []
-            for s in schedules:
-                if float(s.get('cost', 0) or 0) > 40 and float(s.get('conv_value_cost', 0) or 0) < 1.5:
-                    day_time = s.get('day_and_time', 'Unknown')
-                    cost = float(s.get('cost', 0) or 0)
-                    roas = float(s.get('conv_value_cost', 0) or 0)
-                    bad_slots.append(f"{day_time} - ${cost:.2f}, ROAS {roas:.2f}")
-            
-            if bad_slots[:5]:
-                report.append("⚠️ **Inefficient Time Slots**:")
-                for bs in bad_slots[:5]: report.append(f"  - {bs}")
-                report.append("👉 **Action**: Apply bid adjustments (-30% to -50%).")
-            else:
-                report.append("✅ No major time-of-day issues.")
-            report.append("")
-        else:
-            report.append("ℹ️ Insufficient ad schedule data.")
-            report.append("")
-    except Exception as e:
-        report.append(f"Error in Ad Schedule: {e}")
-        report.append("")
 
     return "\n".join(report)
 
@@ -602,13 +557,24 @@ def call_search_agent(campaign_name: str, issues: List[str], start_date: str = N
         data_context.append(f"\n[Search Terms (Top 20 Impact)]: {json.dumps([dict(r) for r in terms], ensure_ascii=False)}")
     except: pass
 
-    # B. Match Types
+    # B. Match Types (Broad vs Exact Logic)
     try:
         match_stats = query_db("""
             SELECT match_type, SUM(CAST(cost AS REAL)) as total_cost, SUM(CAST(conversions AS REAL)) as total_conv, SUM(CAST(conv_value AS REAL)) as total_value
             FROM search_term WHERE campaign = ? GROUP BY match_type ORDER BY total_cost DESC
         """, (campaign_name,))
-        data_context.append(f"\n[Match Type Stats]: {json.dumps([dict(r) for r in match_stats], ensure_ascii=False)}")
+        
+        # Calculate CVR for Flash to use
+        enhanced_stats = []
+        for ms in match_stats:
+            d = dict(ms)
+            cost = d['total_cost'] or 0
+            conv = d['total_conv'] or 0
+            # Rough CVR estimation requires clicks, but we assume low CVR if High Cost Low Conv
+            d['cpa'] = cost / conv if conv > 0 else 0
+            enhanced_stats.append(d)
+            
+        data_context.append(f"\n[Match Type Stats]: {json.dumps(enhanced_stats, ensure_ascii=False)}")
     except: pass
 
     # C. Audiences
@@ -624,21 +590,25 @@ def call_search_agent(campaign_name: str, issues: List[str], start_date: str = N
     **Data Context:**
     {chr(10).join(data_context)}
 
-    **Analysis Requirements:**
-    1. **Search Terms**: Identify irrelevant junk terms (negative opportunities) and high-cost/zero-conv items.
-    2. **Match Types**: Compare Broad vs Phrase/Exact performance. Recommend tightening if Broad is inefficient.
-    3. **Actionable Advice**: For every issue, recommend a specific action (e.g. "Add negative: 'free'").
+    **Analysis Logic (Strictly apply Expert Experience):**
+    1. **搜索流量质量判定 (Search Quality)**: 
+       - If 'Broad' match type has > 40% spend share AND its CPA is > 1.5x of 'Exact' match, VERDICT: "判定为 流量匹配质量下滑 (Match Quality Degradation)".
+       - Logic: "若广泛匹配占比提升且 Search Term CVR 同期下降，判定为 流量匹配质量下滑".
+    2. **Search Terms**: Identify irrelevant junk terms (negative opportunities).
+    3. **Audience**: Identify high-spend (> $50) audiences with 0 conversions.
 
     **Output Format (Markdown):**
     ### 🔍 Search Campaign Deep Dive: {campaign_name}
-    #### 1. 核心发现
-    (Summary)
-    #### 2. 详细分析
+    #### 1. 核心发现 (Core Findings)
+    - **专家判定**: (Cite the Expert Verdict if applicable, e.g. "流量匹配质量下滑")
+    - **Evidence**: (Data backing the verdict)
+    
+    #### 2. 详细分析 (Analysis)
+    - **匹配类型效能**: (Compare Broad vs Exact/Phrase)
     - **搜索词**: ...
-    - **匹配类型**: ...
+    
     #### 3. 优化建议 (Actions)
     - [ ] Action 1
-    - [ ] Action 2
     """
 
     msg = sub_llm.invoke(prompt)
@@ -843,154 +813,466 @@ class AgentService:
         finally:
             conn.close()
 
-    def get_campaign_anomalies(self, target_date: str = None):
-        """
-        Identify anomalous campaigns for a specific date (defaults to latest in DB).
-        """
-        conn = get_db_connection()
-        try:
-            # 1. Determine the target "Today"
+# --- Standalone Logic (Decoupled from AgentService) ---
+
+def get_campaign_anomalies_logic(target_date: str = None):
+    """
+    Identify anomalous campaigns for a specific date (defaults to latest in DB).
+    Risk Control: Returns empty if target_date falls within major promotion periods.
+    """
+    # --- 0. Risk Control: Promotion Protection Defaults ---
+    # Format: (Start, End). Example: Black Friday / Cyber Monday.
+    PROMOTION_PERIODS = [
+        ('2025-11-20', '2025-12-05'), # BFCM
+        ('2026-06-01', '2026-06-20'), # 618 Sale
+    ]
+    
+    conn = get_db_connection()
+    try:
+        # 1. Determine the target "Today"
+        if not target_date:
+            cursor = conn.cursor()
+            cursor.execute("SELECT MAX(date) FROM campaign")
+            res = cursor.fetchone()
+            target_date = res[0] if res else None
             if not target_date:
-                cursor = conn.cursor()
-                cursor.execute("SELECT MAX(date) FROM campaign")
-                target_date = cursor.fetchone()[0]
-                if not target_date:
-                    return []
-            
-            # 2. Fetch raw data (Last 30 days relative to target_date)
-            query = """
-                SELECT date, campaign, roas, cpa, conversions 
-                FROM campaign 
-                WHERE date <= ? AND date >= date(?, '-45 days')
-                ORDER BY campaign, date ASC
-            """
-            df = pd.read_sql_query(query, conn, params=(target_date, target_date))
-            
-            if df.empty:
                 return []
-
-            # Clean and Convert
-            df['date'] = pd.to_datetime(df['date'])
-            target_dt = pd.to_datetime(target_date)
-            df['roas'] = pd.to_numeric(df['roas'], errors='coerce').fillna(0)
-            df['cpa'] = pd.to_numeric(df['cpa'], errors='coerce').fillna(0)
-            df['conversions'] = pd.to_numeric(df['conversions'], errors='coerce').fillna(0)
-
-            anomalies = []
-            
-            # Group by campaign
-            for campaign_name, group in df.groupby('campaign'):
-                group = group.sort_values('date')
-                if len(group) < 10: 
-                    continue
-
-                # The analysis target is target_dt
-                last_date = target_dt
-                
-                # Check 3 days: T, T-1, T-2
-                check_dates = [last_date - pd.Timedelta(days=i) for i in range(3)] 
-                
-                # Check Condition A: Efficiency for EACH of the last 3 days
-                is_efficiency_bad = True
-                
-                for d in check_dates:
-                    # Specific day row
-                    day_row = group[group['date'] == d]
-                    if day_row.empty:
-                        is_efficiency_bad = False; break
-                    
-                    current_roas = day_row['roas'].values[0]
-                    current_cpa = day_row['cpa'].values[0]
-
-                    # History: 7 days prior to 'd' -> [d-7, d-1]
-                    start_hist = d - pd.Timedelta(days=7)
-                    end_hist = d - pd.Timedelta(days=1)
-                    
-                    hist_rows = group[(group['date'] >= start_hist) & (group['date'] <= end_hist)]
-                    if hist_rows.empty:
-                        is_efficiency_bad = False; break
-                        
-                    avg_roas = hist_rows['roas'].mean()
-                    avg_cpa = hist_rows['cpa'].mean()
-                    
-                    # Criteria
-                    roas_bad = (avg_roas > 0) and (current_roas < avg_roas * 0.8)
-                    cpa_bad = (avg_cpa > 0) and (current_cpa > avg_cpa * 1.25)
-                    
-                    if not (roas_bad or cpa_bad):
-                        is_efficiency_bad = False
-                        break
-                
-                if not is_efficiency_bad:
-                    continue
-
-                # Check Condition B: No Growth
-                # Current Period: [T-2, T]
-                # Week-over-week Previous Period: [T-9, T-7]
-                current_start = last_date - pd.Timedelta(days=2)
-                prev_end = last_date - pd.Timedelta(days=7)
-                prev_start = prev_end - pd.Timedelta(days=2)
-                
-                current_conv = group[(group['date'] >= current_start) & (group['date'] <= last_date)]['conversions'].sum()
-                prev_conv = group[(group['date'] >= prev_start) & (group['date'] <= prev_end)]['conversions'].sum()
-                
-                growth = 0
-                if prev_conv > 0:
-                    growth = (current_conv - prev_conv) / prev_conv
-                
-                is_growth_bad = False
-                if prev_conv > 0:
-                     if growth <= 0: is_growth_bad = True
-                else:
-                     if current_conv == 0: is_growth_bad = True
-                
-                if is_growth_bad:
-                    # Calculate summary stats for display (3d vs prev 7d)
-                    curr_3d_mask = (group['date'] >= current_start) & (group['date'] <= last_date)
-                    prev_7d_mask = (group['date'] >= last_date - pd.Timedelta(days=9)) & (group['date'] <= last_date - pd.Timedelta(days=3))
-                    
-                    curr_roas = group[curr_3d_mask]['roas'].mean()
-                    prev_roas = group[prev_7d_mask]['roas'].mean()
-                    
-                    curr_cpa = group[curr_3d_mask]['cpa'].mean()
-                    prev_cpa = group[prev_7d_mask]['cpa'].mean()
-
-                    # Determine specific efficiency reason
-                    efficiency_details = []
-                    if prev_roas > 0 and curr_roas < prev_roas * 0.8:
-                        drop_pct = (prev_roas - curr_roas) / prev_roas * 100
-                        efficiency_details.append(f"ROAS -{drop_pct:.0f}%")
-                    if prev_cpa > 0 and curr_cpa > prev_cpa * 1.25:
-                        rise_pct = (curr_cpa - prev_cpa) / prev_cpa * 100
-                        efficiency_details.append(f"CPA +{rise_pct:.0f}%")
-                    
-                    reason_str = " & ".join(efficiency_details)
-                    if not reason_str: reason_str = "Efficiency Alert"
-
-                    anomalies.append({
-                        "id": str(campaign_name),
-                        "campaign": campaign_name,
-                        "date": last_date.strftime('%Y-%m-%d'),
-                        "growth_rate": growth,
-                        "current_conv": float(current_conv),
-                        "prev_conv": float(prev_conv),
-                        # Efficiency Metrics
-                        "curr_roas": float(curr_roas) if not pd.isna(curr_roas) else 0.0,
-                        "prev_roas": float(prev_roas) if not pd.isna(prev_roas) else 0.0,
-                        "curr_cpa": float(curr_cpa) if not pd.isna(curr_cpa) else 0.0,
-                        "prev_cpa": float(prev_cpa) if not pd.isna(prev_cpa) else 0.0,
-                        
-                        "status": "Critical",
-                        "reason": f"{reason_str} & No Growth"
-                    })
-            
-            return anomalies
-
-        except Exception as e:
-            print(f"Anomaly Detection Error: {e}")
+        
+        # Check if target_date is in promotion period
+        for start, end in PROMOTION_PERIODS:
+            if start <= target_date <= end:
+                print(f"Skipping Anomaly Check: {target_date} is inside Promotion Protection Period ({start} to {end})")
+                return [] # Quiet Mode during promotions
+        
+        # 2. Fetch raw data (Last 30 days relative to target_date)
+        query = """
+            SELECT date, campaign, roas, cpa, conversions 
+            FROM campaign 
+            WHERE date <= ? AND date >= date(?, '-45 days')
+            ORDER BY campaign, date ASC
+        """
+        df = pd.read_sql_query(query, conn, params=(target_date, target_date))
+        
+        if df.empty:
             return []
+
+        # Clean and Convert
+        df['date'] = pd.to_datetime(df['date'])
+        target_dt = pd.to_datetime(target_date)
+        df['roas'] = pd.to_numeric(df['roas'], errors='coerce').fillna(0)
+        df['cpa'] = pd.to_numeric(df['cpa'], errors='coerce').fillna(0)
+        df['conversions'] = pd.to_numeric(df['conversions'], errors='coerce').fillna(0)
+
+        anomalies = []
+        
+        # Group by campaign
+        for campaign_name, group in df.groupby('campaign'):
+            group = group.sort_values('date')
+            if len(group) < 10: 
+                continue
+
+            # The analysis target is target_dt
+            last_date = target_dt
+            
+            # Check 3 days: T, T-1, T-2
+            check_dates = [last_date - pd.Timedelta(days=i) for i in range(3)] 
+            
+            # Check Condition A: Efficiency for EACH of the last 3 days
+            is_efficiency_bad = True
+            
+            for d in check_dates:
+                # Specific day row
+                day_row = group[group['date'] == d]
+                if day_row.empty:
+                    is_efficiency_bad = False; break
+                
+                current_roas = day_row['roas'].values[0]
+                current_cpa = day_row['cpa'].values[0]
+
+                # History: 7 days prior to 'd' -> [d-7, d-1]
+                start_hist = d - pd.Timedelta(days=7)
+                end_hist = d - pd.Timedelta(days=1)
+                
+                hist_rows = group[(group['date'] >= start_hist) & (group['date'] <= end_hist)]
+                if hist_rows.empty:
+                    is_efficiency_bad = False; break
+                    
+                avg_roas = hist_rows['roas'].mean()
+                avg_cpa = hist_rows['cpa'].mean()
+                
+                # Criteria
+                roas_bad = (avg_roas > 0) and (current_roas < avg_roas * 0.8)
+                cpa_bad = (avg_cpa > 0) and (current_cpa > avg_cpa * 1.25)
+                
+                if not (roas_bad or cpa_bad):
+                    is_efficiency_bad = False
+                    break
+            
+            if not is_efficiency_bad:
+                continue
+
+            # Check Condition B: No Growth
+            # Current Period: [T-2, T]
+            # Week-over-week Previous Period: [T-9, T-7]
+            current_start = last_date - pd.Timedelta(days=2)
+            prev_end = last_date - pd.Timedelta(days=7)
+            prev_start = prev_end - pd.Timedelta(days=2)
+            
+            current_conv = group[(group['date'] >= current_start) & (group['date'] <= last_date)]['conversions'].sum()
+            prev_conv = group[(group['date'] >= prev_start) & (group['date'] <= prev_end)]['conversions'].sum()
+            
+            growth = 0
+            if prev_conv > 0:
+                growth = (current_conv - prev_conv) / prev_conv
+            
+            is_growth_bad = False
+            if prev_conv > 0:
+                 if growth <= 0: is_growth_bad = True
+            else:
+                 if current_conv == 0: is_growth_bad = True
+            
+            if is_growth_bad:
+                # Calculate summary stats for display (3d vs prev 7d)
+                curr_3d_mask = (group['date'] >= current_start) & (group['date'] <= last_date)
+                prev_7d_mask = (group['date'] >= last_date - pd.Timedelta(days=9)) & (group['date'] <= last_date - pd.Timedelta(days=3))
+                
+                curr_roas = group[curr_3d_mask]['roas'].mean()
+                prev_roas = group[prev_7d_mask]['roas'].mean()
+                
+                curr_cpa = group[curr_3d_mask]['cpa'].mean()
+                prev_cpa = group[prev_7d_mask]['cpa'].mean()
+
+                # Determine specific efficiency reason
+                efficiency_details = []
+                if prev_roas > 0 and curr_roas < prev_roas * 0.8:
+                    drop_pct = (prev_roas - curr_roas) / prev_roas * 100
+                    efficiency_details.append(f"ROAS -{drop_pct:.0f}%")
+                if prev_cpa > 0 and curr_cpa > prev_cpa * 1.25:
+                    rise_pct = (curr_cpa - prev_cpa) / prev_cpa * 100
+                    efficiency_details.append(f"CPA +{rise_pct:.0f}%")
+                
+                reason_str = " & ".join(efficiency_details)
+                if not reason_str: reason_str = "Efficiency Alert"
+
+                anomalies.append({
+                    "id": str(campaign_name),
+                    "campaign": campaign_name,
+                    "date": last_date.strftime('%Y-%m-%d'),
+                    "growth_rate": growth,
+                    "current_conv": float(current_conv),
+                    "prev_conv": float(prev_conv),
+                    # Efficiency Metrics
+                    "curr_roas": float(curr_roas) if not pd.isna(curr_roas) else 0.0,
+                    "prev_roas": float(prev_roas) if not pd.isna(prev_roas) else 0.0,
+                    "curr_cpa": float(curr_cpa) if not pd.isna(curr_cpa) else 0.0,
+                    "prev_cpa": float(prev_cpa) if not pd.isna(prev_cpa) else 0.0,
+                    
+                    "status": "Critical",
+                    "reason": f"{reason_str} & No Growth"
+                })
+        
+        return anomalies
+
+    except Exception as e:
+        print(f"Anomaly Detection Error: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+class AgentService:
+    def __init__(self):
+        print(f"Initializing Main Agent with model={MAIN_MODEL_NAME}")
+        self.llm = main_llm
+        
+        self.tools = [scan_campaigns_for_anomalies, analyze_specific_table, call_pmax_agent, call_search_agent]
+        self.llm_with_tools = self.llm.bind_tools(self.tools)
+        
+        self._init_prefs_db()
+
+        workflow = StateGraph(AgentState)
+        workflow.add_node("agent", self.call_model)
+        workflow.add_node("tools", self.call_tools) # Use custom node
+        workflow.set_entry_point("agent")
+        workflow.add_conditional_edges("agent", self.should_continue, {"continue": "tools", "end": END})
+        workflow.add_edge("tools", "agent")
+        self.app = workflow.compile()
+
+    def _init_prefs_db(self):
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                table_name TEXT,
+                item_identifier TEXT,
+                is_pinned INTEGER DEFAULT 0,
+                display_order INTEGER DEFAULT 0,
+                PRIMARY KEY (table_name, item_identifier)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+    def call_tools(self, state: AgentState):
+        """
+        Manual execution of tools to bypass ToolNode strictness.
+        This ensures we can flexibly handle return types and injection.
+        """
+        messages = state['messages']
+        last_message = messages[-1]
+        
+        if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
+            return {"messages": []}
+        
+        outputs = []
+        
+        for tool_call in last_message.tool_calls:
+            tool_name = tool_call.get('name')
+            tool_args = tool_call.get('args', {})
+            tool_id = tool_call.get('id')
+            
+            # Robust Fallback for ID
+            if not tool_id:
+                print(f"⚠️ Warning: Missing tool_call_id for {tool_name}, generating random one.")
+                tool_id = str(uuid.uuid4())
+            
+            print(f"🔧 Executing Tool: {tool_name} (ID: {tool_id})")
+            
+            result = "Error: Tool not found."
+            
+            try:
+                if tool_name == 'scan_campaigns_for_anomalies':
+                    # StructuredTool must be invoked
+                    result = scan_campaigns_for_anomalies.invoke(tool_args)
+                    
+                elif tool_name == 'analyze_specific_table':
+                    # Raw function - call directly
+                    result = analyze_specific_table(**tool_args)
+                
+                elif tool_name == 'call_pmax_agent':
+                    result = call_pmax_agent.invoke(tool_args)
+
+                elif tool_name == 'call_search_agent':
+                    result = call_search_agent.invoke(tool_args)
+
+                else:
+                    result = f"Error: Unknown tool '{tool_name}'."
+                    
+            except Exception as e:
+                print(f"❌ Tool Execution Error [{tool_name}]: {e}")
+                result = f"Error executing tool {tool_name}: {str(e)}"
+            
+            # Ensure result is string
+            if not isinstance(result, str):
+                result = str(result)
+            
+            outputs.append(ToolMessage(content=result, tool_call_id=tool_id))
+            
+        return {"messages": outputs}
+
+    def _sanitize_history(self, messages: List[BaseMessage]) -> List[BaseMessage]:
+        """
+        Converts previous Tool interactions into plain text to avoid strict 
+        'thought_signature' checks by Gemini 3.0 on historical messages.
+        Only the LAST message is kept as-is (if it's a User Request).
+        """
+        sanitized = []
+        for i, msg in enumerate(messages):
+            # Keep the System Prompt
+            if isinstance(msg, SystemMessage):
+                sanitized.append(msg)
+                continue
+                
+            # Flatten Tool Interactions
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                # Convert 'AI calling tool' to text
+                tool_names = [t['name'] for t in msg.tool_calls]
+                sanitized.append(AIMessage(content=f"🤔 [Thinking History] I decided to call tools: {', '.join(tool_names)}."))
+            
+            elif isinstance(msg, ToolMessage):
+                # Convert 'Tool Output' to text
+                # Truncate very long outputs to save context
+                content_preview = str(msg.content)[:500] + "..." if len(str(msg.content)) > 500 else str(msg.content)
+                sanitized.append(HumanMessage(content=f"🔧 [Tool Output History]: {content_preview}"))
+            
+            else:
+                # Keep normal text messages (User/AI Chat)
+                sanitized.append(msg)
+                
+        return sanitized
+
+    def call_model(self, state: AgentState):
+        messages = state['messages']
+        selected = state.get('selected_tables', [])
+        
+        # Build dynamic expertise list for the prompt
+        available_experts = []
+        for table_id in selected:
+            if table_id in TABLE_EXPERT_KNOWLEDGE:
+                info = TABLE_EXPERT_KNOWLEDGE[table_id]
+                available_experts.append(f"- 【{info['title']}专家】: 专注于 {info['focus']}。使用工具时传入 table_name='{table_id}'")
+
+        expertise_section = "\n".join(available_experts) if available_experts else "当前未开启任何专项深度诊断 (用户仅关注汇总数据)。"
+
+        # Ensure System Prompt
+        if not isinstance(messages[0], SystemMessage):
+            system_prompt = SystemMessage(content=f"""你是 AdsManager Main Agent (任务调度器)。
+你的职责是实时监控广告表现，并协调“专项专家”进行深入诊断。
+
+**当前活跃的专项专家 (仅限以下):**
+{expertise_section}
+
+**时间维度决策:**
+- 你必须根据用户的提问（如“分析本周”、“分析1月1日到18日”）或者通过上下文感知来决定 `start_date` 和 `end_date`。
+- 如果用户没有指定，默认可以不传，或者根据你的判断传最近7天。
+- 将时间范围透传给下层工具函数。
+
+**工作流程:**
+1. **显性化思考**: 在调用任何工具前，你必须先输出一段简短的分析思路（例如：“监测到用户请求...我将启动...”）。这是强制要求。
+2. **全局扫描**: 首先通过 `scan_campaigns_for_anomalies` 发现存在指标波动的广告系列。
+3. **按需分派**: 如果扫描发现异常，且该活动属于你的职责范围：
+   - **严格限制**: 你【只能】调用上述“当前活跃”列表中的专家工具 `analyze_specific_table`。
+   - 如果某个表不在活跃列表中，严禁自行臆断或尝试调用。
+4. **汇总报告**: 将专家的分析结果整合成一份专业的报告。
+
+**原则:**
+- 只有看到用户选择了某个表，你才会意识到有对应的专家可用。
+- 输出必须专业、准确，使用中文。
+- 深度分析结果必须准确标注来源（例如 "(数据来源: age 表)"）。
+- **透明化执行**: 用户需要看到你的思考过程，不要直接跳到工具调用。
+""")
+            messages = [system_prompt] + messages
+            
+        # SANITIZE HISTORY: Bypass 'thought_signature' check for past turns
+        # We only strictly need structured objects for the *current* turn if we are processing it.
+        # But here, we are invoking the model to *generate* the next step.
+        # So previous steps can be flattened.
+        safe_messages = self._sanitize_history(messages)
+
+        print(f"🤖 Invoking Main Model ({MAIN_MODEL_NAME}) with {len(safe_messages)} safe messages...")
+        response = self.llm_with_tools.invoke(safe_messages)
+        return {"messages": [response]}
+
+    def should_continue(self, state: AgentState):
+        messages = state['messages']
+        last_message = messages[-1]
+        if last_message.tool_calls:
+            return "continue"
+        return "end"
+
+    async def chat_stream(self, message: str, messages: list, selected_tables: list = None):
+        input_messages = []
+        if messages:
+            for msg in messages:
+                if msg.role == 'user':
+                    input_messages.append(HumanMessage(content=msg.content))
+                elif msg.role == 'agent':
+                    input_messages.append(AIMessage(content=msg.content))
+        
+        input_messages.append(HumanMessage(content=message))
+        
+        # Initialize state with selected tables
+        initial_state = {
+            "messages": input_messages,
+            "selected_tables": selected_tables or []
+        }
+        
+        async for event in self.app.astream_events(initial_state, version="v1"):
+            kind = event["event"]
+            
+            # Stream LLM text output
+            if kind == "on_chat_model_stream":
+                content = event["data"]["chunk"].content
+                if content:
+                    yield content
+            
+            # Stream tool calls (show which sub-agent/tool is being called)
+            elif kind == "on_tool_start":
+                tool_name = event.get("name", "Unknown Tool")
+                tool_input = event.get("data", {}).get("input", {})
+                
+                # Send a special marker for tool calls
+                if tool_name == "scan_campaigns_for_anomalies":
+                    yield f"\n\n🔍 **[调用工具]** 扫描所有广告系列...\n\n"
+                elif tool_name == "call_pmax_agent":
+                    campaign = tool_input.get("campaign_name", "Unknown")
+                    yield f"\n\n🎯 **[调用 PMax Agent]** 分析 {campaign}...\n\n"
+                elif tool_name == "analyze_specific_table":
+                    campaign = tool_input.get("campaign_name", "Unknown")
+                    table = tool_input.get("table_name", "Unknown")
+                    yield f"\n\n🩺 **[专项分析]** 正在调遣专家分析 {campaign} 的 {table} 数据...\n\n"
+                elif tool_name == "call_search_agent":
+                    campaign = tool_input.get("campaign_name", "Unknown")
+                    yield f"\n\n🔎 **[调用 Search Agent]** 分析 {campaign}...\n\n"
+            
+            # Stream tool results (optional, can show completion)
+            elif kind == "on_tool_end":
+                tool_name = event.get("name", "Unknown Tool")
+                # You can optionally show tool completion
+                # yield f"\n✅ [{tool_name}] 完成\n"
+
+    def get_tables(self):
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        return tables
+
+    def get_table_data(self, table_name, start_date: str = None, end_date: str = None):
+        conn = get_db_connection()
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        try:
+            pk_col = 'campaign' 
+            if table_name == 'search_term': pk_col = 'search_term'
+            elif table_name == 'product': pk_col = 'item_id' 
+            elif table_name == 'asset': pk_col = 'ad_group' 
+            elif table_name == 'audience': pk_col = 'audience_segment'
+            elif table_name == 'channel': pk_col = 'channels'
+            
+            where_clause = ""
+            params = []
+            
+            if start_date and end_date:
+                where_clause = "WHERE t.date >= ? AND t.date <= ?"
+                params = [start_date, end_date]
+            elif start_date:
+                where_clause = "WHERE t.date >= ?"
+                params = [start_date]
+            elif end_date:
+                where_clause = "WHERE t.date <= ?"
+                params = [end_date]
+            
+            query = f"""
+                SELECT t.*, 
+                       COALESCE(p.is_pinned, 0) as _pinned, 
+                       COALESCE(p.display_order, 999999) as _order
+                FROM {table_name} t
+                LEFT JOIN user_preferences p 
+                ON p.table_name = '{table_name}' AND p.item_identifier = t.{pk_col}
+                {where_clause}
+                ORDER BY _pinned DESC, _order ASC, date DESC
+            """
+            
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            if not rows: return {"columns": [], "data": []}
+
+            columns = [description[0] for description in cursor.description]
+            display_columns = [c for c in columns if c not in ['_pinned', '_order']]
+            
+            data = [dict(row) for row in rows]
+            return {"columns": display_columns, "data": data}
+        except Exception as e:
+            return {"error": str(e)}
         finally:
             conn.close()
+
+    def get_campaign_anomalies(self, target_date: str = None):
+        """Wrapper for standalone logic"""
+        return get_campaign_anomalies_logic(target_date)
 
     def update_preference(self, table_name: str, item_identifier: str, is_pinned: int = None, display_order: int = None):
         conn = get_db_connection()

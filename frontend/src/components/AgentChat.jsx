@@ -12,7 +12,7 @@ export default function AgentChat() {
     const [showSidebar, setShowSidebar] = useState(false);
 
     // --- Table Selection State ---
-    const [selectedTables, setSelectedTables] = useState(['Anomalies', 'Campaigns', 'Products']);
+    const [selectedTables, setSelectedTables] = useState(['Anomalies', 'Campaigns', 'Products', 'channel', 'search_term']);
     const [isContextOpen, setIsContextOpen] = useState(false);
 
     const [editingId, setEditingId] = useState(null);
@@ -72,7 +72,7 @@ export default function AgentChat() {
         const newChat = {
             id: Date.now(),
             title: `Analysis ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-            messages: [{ role: 'agent', content: '你好！我是广告诊断专家。\n\n**我可以帮你**：\n- 扫描所有广告系列，发现异常\n- 深度分析具体的 Performance Max 或 Search 广告系列\n\n请告诉我你需要什么？例如：\n- "扫描所有广告系列"\n- "分析 Sales-Performance Max-UK"' }]
+            messages: [{ role: 'agent', content: '您好！我是 **AdsManager 专家系统 (v1.0)**。\n\n**核心能力**：\n- 🛡️ **Rule-First 诊断**：基于确定性规则，拒绝幻觉。\n- 🩺 **多维度专家**：搜词、渠道、商品、地域深度审计。\n- ⚖️ **风控保护**：大促期、冷启动期自动降级风险动作。\n\n**您可以**：\n- 直接点击 **"Send"** (空消息) 进行全账户自动巡检。\n- 输入 **"分析 [系列名]"** 调遣专家组进行深度诊断。' }]
         };
         setConversations(prev => [newChat, ...(Array.isArray(prev) ? prev : [])]);
         setCurrentId(newChat.id);
@@ -122,9 +122,13 @@ export default function AgentChat() {
     };
 
     const sendMessage = async () => {
-        if (!input.trim() || !currentId) return;
+        if (!currentId) return;
 
-        const userMsg = { role: 'user', content: input };
+        // "Quick Scan" Feature: If input is empty, treat it as a request to scan
+        const isQuickScan = !input.trim();
+        const effectiveInput = isQuickScan ? "Invoke the Expert System to scan for anomalies. (Auto-Scan)" : input;
+
+        const userMsg = { role: 'user', content: effectiveInput };
         setConversations(prev => (Array.isArray(prev) ? prev : []).map(c => {
             if (c.id === currentId) {
                 return { ...c, messages: [...(Array.isArray(c.messages) ? c.messages : []), userMsg] };
@@ -132,7 +136,7 @@ export default function AgentChat() {
             return c;
         }));
 
-        const currentInput = input;
+        const currentInput = effectiveInput;
         setInput("");
         setLoading(true);
 
@@ -344,16 +348,17 @@ export default function AgentChat() {
     const messages = Array.isArray(currentChat.messages) ? currentChat.messages : [];
 
     const ALL_TABLES = [
-        { id: 'Anomalies', label: 'Anomaly Monitor' },
-        { id: 'Campaigns', label: 'Campaigns Overview' },
-        { id: 'Products', label: 'Products Overview' },
-        { id: 'search_term', label: 'Search Terms' },
-        { id: 'asset', label: 'Asset Groups' },
-        { id: 'audience', label: 'Audience Segments' },
-        { id: 'age', label: 'Age Ranges' },
-        { id: 'gender', label: 'Gender Groups' },
-        { id: 'location', label: 'Location Matrix' },
-        { id: 'ad_schedule', label: 'Ad Schedules' }
+        { id: 'Anomalies', label: '🛡️ Anomaly Guard' },
+        { id: 'Campaigns', label: '📊 Campaign Manager' },
+        { id: 'Products', label: '📦 Product Specialist' },
+        { id: 'search_term', label: '🔍 Search Term Analyst' },
+        { id: 'asset', label: '🎨 Creative Asset Expert' },
+        { id: 'audience', label: '👥 Audience Strategist' },
+        { id: 'age', label: '🎂 Age Demographics' },
+        { id: 'gender', label: '⚧ Gender Demographics' },
+        { id: 'location', label: '🌍 Location & Geo Expert' },
+        { id: 'ad_schedule', label: '⏰ Time/Schedule Analyst' },
+        { id: 'channel', label: '📡 Channel (PMax) Auditor' }
     ];
 
     return (
@@ -536,7 +541,7 @@ export default function AgentChat() {
                         >
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Layout size={16} color="#64748b" />
-                                <span>{selectedTables.length === 0 ? "Select Data Sources" : `${selectedTables.length} Tables Selected`}</span>
+                                <span>{selectedTables.length === 0 ? "Select Active Agents" : `${selectedTables.length} Agents Active`}</span>
                             </div>
                             <ChevronDown size={16} />
                         </div>
@@ -559,10 +564,10 @@ export default function AgentChat() {
                                 animation: 'slideInUp 0.2s ease-out'
                             }}>
                                 <div style={{ padding: '12px 15px', backgroundColor: '#f8fafc', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Available Context</span>
+                                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Available Experts</span>
                                     <div style={{ display: 'flex', gap: '8px' }}>
-                                        <button onClick={() => setSelectedTables(ALL_TABLES.map(t => t.id))} style={{ border: 'none', background: 'none', fontSize: '11px', color: '#3b82f6', cursor: 'pointer', fontWeight: 600 }}>All</button>
-                                        <button onClick={() => setSelectedTables([])} style={{ border: 'none', background: 'none', fontSize: '11px', color: '#f43f5e', cursor: 'pointer', fontWeight: 600 }}>None</button>
+                                        <button onClick={() => setSelectedTables(ALL_TABLES.map(t => t.id))} style={{ border: 'none', background: 'none', fontSize: '11px', color: '#3b82f6', cursor: 'pointer', fontWeight: 600 }}>Enable All</button>
+                                        <button onClick={() => setSelectedTables([])} style={{ border: 'none', background: 'none', fontSize: '11px', color: '#f43f5e', cursor: 'pointer', fontWeight: 600 }}>Disable All</button>
                                     </div>
                                 </div>
                                 <div style={{ padding: '8px' }}>
