@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Filter, X, Zap, Activity, ShoppingBag, RotateCcw } from 'lucide-react';
 import ResizableTable from './ResizableTable';
 import AnomalyDashboard from './AnomalyDashboard';
+import ProductMonitor from './ProductMonitor';
+import { API_BASE_URL } from '../config';
 
 export default function App() {
     const navigate = useNavigate();
@@ -149,7 +151,7 @@ export default function App() {
                 }
             }
 
-            const response = await fetch(`http://localhost:8000/api/tables/campaign?${params.toString()}`);
+            const response = await fetch(`${API_BASE_URL}/api/tables/campaign?${params.toString()}`);
             const data = await response.json();
             if (!data.error) {
                 setTableData(data.data || []);
@@ -175,7 +177,7 @@ export default function App() {
                 }
             }
 
-            const response = await fetch(`http://localhost:8000/api/tables/product?${params.toString()}`);
+            const response = await fetch(`${API_BASE_URL}/api/tables/product?${params.toString()}`);
             const data = await response.json();
             if (!data.error) {
                 setProductData(data.data || []);
@@ -508,6 +510,7 @@ export default function App() {
                         </div>
                         <div style={{ padding: '20px' }}>
                             <AnomalyDashboard />
+                            <ProductMonitor />
                         </div>
                     </div>
 

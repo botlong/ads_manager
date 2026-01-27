@@ -3,6 +3,7 @@ import Markdown from 'react-markdown';
 import { MessageSquare, X, Menu, Plus, Send, Trash2, Edit, Check, Sparkles, Maximize2, Minimize2, Minus, Layout, Table, AlertTriangle, ChevronDown, CheckSquare, Square } from 'lucide-react';
 import CustomRuleEditor from './CustomRuleEditor';
 import PerAgentRuleEditor from './PerAgentRuleEditor';
+import { API_BASE_URL } from '../config';
 
 export default function AgentChat() {
     const [isOpen, setIsOpen] = useState(false);
@@ -14,7 +15,7 @@ export default function AgentChat() {
     const [showSidebar, setShowSidebar] = useState(false);
 
     // --- Table Selection State ---
-    const [selectedTables, setSelectedTables] = useState(['Anomalies', 'Campaigns', 'Products', 'channel', 'search_term']);
+    const [selectedTables, setSelectedTables] = useState(['Anomalies', 'Campaigns', 'Products', 'search_term', 'asset', 'audience', 'age', 'gender', 'location', 'ad_schedule', 'channel']);
     const [isContextOpen, setIsContextOpen] = useState(false);
 
     // --- Custom Rule Editor State ---
@@ -141,7 +142,7 @@ export default function AgentChat() {
         if (!customRuleText.trim()) return;
         setRuleSaveStatus('saving');
         try {
-            const response = await fetch('http://localhost:8000/api/agent-rules', {
+            const response = await fetch(`${API_BASE_URL}/api/agent-rules`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -185,7 +186,7 @@ export default function AgentChat() {
         const messageHistory = currentMsgs.map(m => ({ role: m.role, content: m.content })).slice(-10);
 
         try {
-            const response = await fetch('http://localhost:8000/api/chat', {
+            const response = await fetch(`${API_BASE_URL}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -630,23 +631,14 @@ export default function AgentChat() {
                                             onMouseOver={(e) => !selectedTables.includes(table.id) && (e.currentTarget.style.backgroundColor = '#f8fafc')}
                                             onMouseOut={(e) => !selectedTables.includes(table.id) && (e.currentTarget.style.backgroundColor = 'transparent')}
                                         >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', position: 'relative' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
+                                                {selectedTables.includes(table.id) ? <CheckSquare size={16} /> : <Square size={16} color="#cbd5e1" />}
                                                 <span style={{ fontWeight: selectedTables.includes(table.id) ? '600' : '400' }}>{table.label}</span>
-                                                <PerAgentRuleEditor tableId={table.id} tableLabel={table.label} isSelected={selectedTables.includes(table.id)} />
                                             </div>
-                                            {selectedTables.includes(table.id) ? <CheckSquare size={16} /> : <Square size={16} color="#cbd5e1" />}
+                                            <PerAgentRuleEditor tableId={table.id} tableLabel={table.label} isSelected={selectedTables.includes(table.id)} />
                                         </div>
                                     ))}
                                 </div>
-                                <CustomRuleEditor
-                                    customRuleText={customRuleText}
-                                    setCustomRuleText={setCustomRuleText}
-                                    showRuleEditor={showRuleEditor}
-                                    setShowRuleEditor={setShowRuleEditor}
-                                    applyRuleOnce={applyRuleOnce}
-                                    applyRulePermanently={applyRulePermanently}
-                                    ruleSaveStatus={ruleSaveStatus}
-                                />
                             </div>
                         )}
                     </div>

@@ -113,24 +113,31 @@ class ExpertEngine:
     def search_term_expert(campaign_name: str, target_date: str) -> List[Dict]:
         """
         搜索词专家: 识别高损耗词与匹配质量下滑
+        增强: CVR 联动分析 - 检测广泛匹配占比上升 + CVR 下降 > 20%
         """
         flags = []
         
-        # 1. 获取搜索词数据 (交互/点击字段: interactions, 转化字段: conversions)
-        query = """
+        # 1. 获取当期搜索词数据 (7天)
+        query_current = """
             SELECT search_term, match_type, SUM(cost) as cost, SUM(conversions) as conversions, SUM(interactions) as clicks
             FROM search_term
-            WHERE campaign = ? AND date >= date(?, '-7 days')
+            WHERE campaign = ? AND date >= date(?, '-7 days') AND date <= ?
             GROUP BY search_term, match_type
         """
-        rows = query_db(query, (campaign_name, target_date))
+        rows = query_db(query_current, (campaign_name, target_date, target_date))
         if not rows: return []
         
         total_cost = sum(r['cost'] for r in rows)
+        total_clicks = sum(r['clicks'] or 0 for r in rows)
+        total_conv = sum(r['conversions'] or 0 for r in rows)
         if total_cost == 0: return []
+        
+        # 当期 CVR
+        current_cvr = total_conv / total_clicks if total_clicks > 0 else 0
         
         avg_cpa = 40.0 
         
+        # 2. 高损耗搜索词检测
         for r in rows:
             term = r['search_term'].lower()
             if any(brand in term for brand in ['brandname', 'google', 'official']):
@@ -145,16 +152,51 @@ class ExpertEngine:
                     "suggestion": "添加为否定关键词。"
                 })
         
-        broad_cost = sum(r['cost'] for r in rows if r['match_type'].lower() == 'broad')
-        broad_share = broad_cost / total_cost
+        # 3. 广泛匹配占比检测
+        broad_cost = sum(r['cost'] for r in rows if r['match_type'] and r['match_type'].lower() == 'broad')
+        broad_share = broad_cost / total_cost if total_cost > 0 else 0
+        
         if broad_share > 0.45:
-             flags.append({
+            flags.append({
                 "expert": "搜索词专家",
-                "issue": "流量匹配质量下滑",
+                "issue": "广泛匹配配额过高",
                 "severity": "MEDIUM",
-                "evidence": f"广泛匹配消耗占比达 {broad_share*100:.1f}%，存在引入无关流量风险。",
+                "evidence": f"广泛匹配消耗占比达 {broad_share*100:.1f}% (阈值: 45%)，存在引入无关流量风险。",
                 "suggestion": "检查搜索词条目；考虑切换为词组匹配或完全匹配以精准控制。"
             })
+        
+        # 4. CVR 联动分析: 获取前7天数据进行对比
+        query_prev = """
+            SELECT SUM(conversions) as conversions, SUM(interactions) as clicks,
+                   SUM(CASE WHEN match_type = 'Broad' THEN cost ELSE 0 END) as broad_cost,
+                   SUM(cost) as total_cost
+            FROM search_term
+            WHERE campaign = ? AND date >= date(?, '-14 days') AND date < date(?, '-7 days')
+        """
+        prev_data = query_db(query_prev, (campaign_name, target_date, target_date))
+        
+        if prev_data and prev_data[0]['clicks']:
+            prev_clicks = prev_data[0]['clicks'] or 0
+            prev_conv = prev_data[0]['conversions'] or 0
+            prev_cvr = prev_conv / prev_clicks if prev_clicks > 0 else 0
+            prev_total_cost = prev_data[0]['total_cost'] or 0
+            prev_broad_cost = prev_data[0]['broad_cost'] or 0
+            prev_broad_share = prev_broad_cost / prev_total_cost if prev_total_cost > 0 else 0
+            
+            # CVR 下降幅度
+            cvr_decline = (prev_cvr - current_cvr) / prev_cvr if prev_cvr > 0 else 0
+            # 广泛匹配占比上升
+            broad_share_increase = broad_share - prev_broad_share
+            
+            # 判定: 广泛匹配占比上升 + CVR 同期下降 > 20%
+            if broad_share_increase > 0.05 and cvr_decline > 0.20:
+                flags.append({
+                    "expert": "搜索词专家",
+                    "issue": "⚠️ 流量质量衰减 (Traffic Quality Degradation)",
+                    "severity": "HIGH",
+                    "evidence": f"广泛匹配占比从 {prev_broad_share*100:.1f}% 上升至 {broad_share*100:.1f}%，同时 CVR 从 {prev_cvr*100:.2f}% 下降至 {current_cvr*100:.2f}% (降幅 {cvr_decline*100:.1f}%)。",
+                    "suggestion": "判定为流量匹配质量下滑。建议: 1) 审查广泛匹配引入的搜索词 2) 增加否定关键词 3) 考虑切换至词组/完全匹配。"
+                })
             
         return flags
 
@@ -349,6 +391,104 @@ class ExpertEngine:
         # Table 'time' is missing or has no schema, skip safely.
         return []
 
+    @staticmethod
+    def bottom_20_percent_marker(campaign_name: str, target_date: str, dimension: str = 'search_term') -> List[Dict]:
+        """
+        Bottom 20% 流量标记器
+        自动筛选 ROAS 最低的 20% 流量源（按 Search Term / Channel / Geo 等维度）
+        标记为"待排除"或"待降权"候选
+        
+        Args:
+            campaign_name: 广告系列名称
+            target_date: 目标日期
+            dimension: 分析维度 ('search_term', 'channel', 'geo')
+        
+        Returns:
+            List of flagged items with exclusion/downbid recommendations
+        """
+        flags = []
+        
+        if dimension == 'search_term':
+            query = """
+                SELECT search_term as item, SUM(cost) as cost, SUM(conv_value) as value, SUM(conversions) as conversions
+                FROM search_term
+                WHERE campaign = ? AND date >= date(?, '-14 days')
+                GROUP BY search_term
+                HAVING cost > 10
+                ORDER BY (CASE WHEN cost > 0 THEN value / cost ELSE 0 END) ASC
+            """
+            dimension_label = "搜索词"
+        elif dimension == 'channel':
+            query = """
+                SELECT channels as item, SUM(cost) as cost, SUM(results_value) as value, SUM(conversions) as conversions
+                FROM channel
+                WHERE campaigns = ? AND date >= date(?, '-14 days')
+                GROUP BY channels
+                HAVING cost > 10
+                ORDER BY (CASE WHEN cost > 0 THEN value / cost ELSE 0 END) ASC
+            """
+            dimension_label = "渠道"
+        elif dimension == 'geo':
+            query = """
+                SELECT location as item, SUM(cost) as cost, SUM(conv_value) as value, SUM(conversions) as conversions
+                FROM location_by_cities_all_campaign
+                WHERE campaign = ? AND date >= date(?, '-14 days')
+                GROUP BY location
+                HAVING cost > 10
+                ORDER BY (CASE WHEN cost > 0 THEN value / cost ELSE 0 END) ASC
+            """
+            dimension_label = "地理位置"
+        else:
+            return []
+        
+        rows = query_db(query, (campaign_name, target_date))
+        if not rows or len(rows) < 5:
+            return []  # 数据量不足以做百分位分析
+        
+        # 计算底部 20% 的数量
+        bottom_count = max(1, int(len(rows) * 0.2))
+        bottom_20 = rows[:bottom_count]
+        
+        # 计算账户平均 ROAS
+        total_cost = sum(r['cost'] for r in rows)
+        total_value = sum(r['value'] or 0 for r in rows)
+        avg_roas = total_value / total_cost if total_cost > 0 else 0
+        
+        for r in bottom_20:
+            item_name = r['item']
+            cost = r['cost']
+            value = r['value'] or 0
+            item_roas = value / cost if cost > 0 else 0
+            conversions = r['conversions'] or 0
+            
+            # 根据 ROAS 水平决定建议
+            if item_roas == 0 or conversions == 0:
+                action = "待排除 (Exclude)"
+                severity = "HIGH"
+            elif item_roas < avg_roas * 0.3:
+                action = "待排除 (Exclude)"
+                severity = "HIGH"
+            elif item_roas < avg_roas * 0.5:
+                action = "待降权 (-50% Bid Modifier)"
+                severity = "MEDIUM"
+            else:
+                action = "待降权 (-30% Bid Modifier)"
+                severity = "LOW"
+            
+            flags.append({
+                "expert": f"Bottom 20% 标记器 ({dimension_label})",
+                "issue": f"低效{dimension_label} - {action}",
+                "severity": severity,
+                "evidence": f"{dimension_label} '{item_name}' ROAS={item_roas:.2f} (账户均值={avg_roas:.2f})，消耗=${cost:.0f}，转化={conversions}。",
+                "suggestion": action,
+                "item": item_name,
+                "roas": item_roas,
+                "cost": cost,
+                "action_type": "exclude" if "排除" in action else "downbid"
+            })
+        
+        return flags
+
 # --- 3. DiagnosisAggregator (诊断聚合器) ---
 
 class DiagnosisAggregator:
@@ -365,6 +505,7 @@ class DiagnosisAggregator:
             if f['expert'] == '渠道专家 (PMax)': root_causes.append("渠道洗样/补贴")
             if f['expert'] == '地理专家': root_causes.append("地理投放黑洞")
             if f['expert'] == '关键词专家': root_causes.append("主词流量损耗")
+            if 'Bottom 20%' in f['expert']: root_causes.append("低效流量源")
         
         final_root_cause = " & ".join(list(set(root_causes))) if root_causes else "宏观效率波动 (未命中特定规则)"
 

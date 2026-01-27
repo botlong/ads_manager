@@ -15,7 +15,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, System
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 
-from expert_system import ContextGuard, ExpertEngine, DiagnosisAggregator
+from expert_system import ContextGuard  # ExpertEngine removed - now using pure LLM analysis
 
 # Load env vars
 load_dotenv()
@@ -43,6 +43,57 @@ main_llm = ChatOpenAI(
 # --- Table Expert Knowledge ---
 # This dict provides specific metric descriptions and diagnostic focus for the sub-agent
 TABLE_EXPERT_KNOWLEDGE = {
+    "Anomalies": {
+        "title": "Anomaly Guard (异常巡检专家)",
+        "focus": "全账户自动巡检，识别效率异常与增长停滞。",
+        "metrics_desc": "campaign: 系列名, roas: 广告支出回报率, cpa: 单次转化成本, conversions: 转化数",
+        "expert_rules": """
+        - **ROAS 崩盘**: 3天 ROAS < 账户均值 80% -> 触发深度诊断
+        - **CPA 飙升**: 3天 CPA > 账户均值 125% -> 触发成本异常警报
+        - **增长停滞**: 7天同比转化零增长 -> 标记增长风险
+        - **风控保护**: 大促期/冷启动期自动降级风险动作
+        """
+    },
+    "Campaigns": {
+        "title": "Campaign Manager (广告系列管理专家)",
+        "focus": "广告系列整体健康度评估与优化建议。",
+        "metrics_desc": "campaign: 名称, cost: 消耗, conversions: 转化, roas: ROAS, cpa: CPA",
+        "expert_rules": """
+        - **预算效率**: 预算消耗率 < 70% -> 检查定向或出价
+        - **转化质量**: 转化价值/转化数 持续下降 -> 检查落地页或受众
+        - **系列结构**: 同系列广告组数量 > 10 -> 建议精简结构
+        """
+    },
+    "Products": {
+        "title": "Product Specialist (产品专家)",
+        "focus": "商品/SKU 层级效率分析。",
+        "metrics_desc": "product_title: 商品名, item_id: SKU, cost: 消耗, conversions: 转化, roas: ROAS",
+        "expert_rules": """
+        - **僵尸商品**: 消耗 > $80 且 0 转化 -> 建议排除
+        - **冷启动保护**: 新品消耗 < $30 -> 暂不优化
+        - **预算霸占**: 单品占预算 > 85% -> 警告测试饥饿风险
+        """
+    },
+    "asset": {
+        "title": "Creative Asset Expert (素材创意专家)",
+        "focus": "创意素材效果评估与轮换建议。",
+        "metrics_desc": "asset_name: 素材名, asset_type: 类型, cost: 消耗, conversions: 转化, ctr: 点击率",
+        "expert_rules": """
+        - **疲劳检测**: CTR 连续 7 天下降 > 20% -> 建议更换素材
+        - **效果分层**: 按 ROAS 分为 Top/Middle/Bottom 三档
+        - **格式建议**: 视频素材 CTR 通常高于静态图，注意对比
+        """
+    },
+    "location": {
+        "title": "Location & Geo Expert (地域专家)",
+        "focus": "地理位置投放效率分析。",
+        "metrics_desc": "location: 位置, cost: 消耗, conversions: 转化, roas: ROAS",
+        "expert_rules": """
+        - **黑洞检测**: 消耗 >= $100 且 0 转化 -> 建议排除
+        - **效率风险**: CPA >= 2x 均值 -> 建议降低出价 30%
+        - **观察期**: 消耗 < $50 或 点击 < 50 -> 数据不足，继续观察
+        """
+    },
     "age": {
         "title": "Age Demographics Expert (年龄分层专家)",
         "focus": "Audit demographic efficiency with high statistical stability.",
@@ -237,69 +288,58 @@ def analyze_specific_table(campaign_name: str, table_name: str, start_date: str 
     if not table_data:
         return f"Found no data in '{table_name}' for campaign '{campaign_name}'."
 
-    # 3. Apply Expert Rules (Deterministic First)
-    expert_rules_findings = []
-    try:
-        if table_name == 'search_term':
-            expert_rules_findings = ExpertEngine.search_term_expert(campaign_name, start_date or end_date or datetime.now().strftime('%Y-%m-%d'))
-        elif table_name == 'channel':
-            expert_rules_findings = ExpertEngine.channel_expert(campaign_name, start_date or end_date or datetime.now().strftime('%Y-%m-%d'))
-        elif table_name == 'product':
-            expert_rules_findings = ExpertEngine.product_expert(campaign_name, start_date or end_date or datetime.now().strftime('%Y-%m-%d'))
-        elif table_name in ['age', 'gender']:
-            expert_rules_findings = ExpertEngine.demographics_expert(campaign_name, table_name, start_date or end_date or datetime.now().strftime('%Y-%m-%d'))
-        elif table_name == 'keyword':
-            expert_rules_findings = ExpertEngine.keyword_expert(campaign_name, start_date or end_date or datetime.now().strftime('%Y-%m-%d'))
-    except Exception as e:
-        print(f"Expert Engine Error in analyze_specific_table: {e}")
-
-    expert_findings_str = ""
-    if expert_rules_findings:
-        expert_findings_str = "**Expert System Findings (Deterministic Rules)**:\n"
-        for f in expert_rules_findings:
-            expert_findings_str += f"- [{f['issue']}] {f['evidence']}\n"
-
-    # 4. Load Custom Rules for this Table (if any)
-    custom_rule_prompt = ""
+    # 3. Load Custom Rules for this Table (if any) - 用户自定义规则优先
+    analysis_rules = ""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT rule_prompt FROM agent_custom_rules WHERE table_name = ? AND is_active = 1", (table_name,))
         result = cursor.fetchone()
         if result and result[0]:
-            custom_rule_prompt = f"\n**用户自定义规则 (优先级最高):**\n{result[0]}\n"
+            # 用户有自定义规则，使用自定义规则
+            analysis_rules = result[0]
         conn.close()
     except Exception as e:
         print(f"Warning: Could not load custom rules for {table_name}: {e}")
 
-    # 5. Invoke Sub-Agent with Expertise
-    expert = TABLE_EXPERT_KNOWLEDGE[table_name]
-    
+    # 如果没有自定义规则，使用默认规则
+    if not analysis_rules:
+        expert = TABLE_EXPERT_KNOWLEDGE.get(table_name, {})
+        analysis_rules = expert.get('expert_rules', '分析数据效率和异常。')
+
+    # 4. 获取专家信息
+    expert = TABLE_EXPERT_KNOWLEDGE.get(table_name, {
+        "title": f"{table_name} 分析专家",
+        "focus": "数据效率分析",
+        "metrics_desc": "请根据数据列自行判断指标含义"
+    })
+
+    # 5. 纯 LLM 分析 - 提示词即规则
     prompt = f"""
-    You are a specialized Data Analyst expert in Google Ads, focusing on: {expert['title']}.
+    你是专业的 Google Ads 优化专家，专注于: {expert['title']}。
     
-    **Analysis Goal**: {expert['focus']}
-    **Metrics Guide**: {expert['metrics_desc']}
+    **分析目标**: {expert['focus']}
+    **指标说明**: {expert['metrics_desc']}
     
-    **Expert Analysis Logic (Strictly follow these tiers)**:
-    {expert.get('expert_rules', 'Analyze for efficiency and anomalies.')}
-    {custom_rule_prompt}
     ---
-    **Campaign Context**: {campaign_name}
-    **Analysis Period**: {start_date or 'ALL'} to {end_date or 'ALL'}
-    **Aggregate Benchmark**: {context_str}
+    ## ⚠️ 重要：你必须严格按照以下规则进行分析
     
-    {expert_findings_str}
+    {analysis_rules}
     
-    **Raw Data (Sorted by significance):**
+    ---
+    **广告系列**: {campaign_name}
+    **分析周期**: {start_date or 'ALL'} 至 {end_date or 'ALL'}
+    **整体基准**: {context_str}
+    
+    **原始数据 (按重要性排序):**
     {safe_truncate_data(table_data, MAX_CONTEXT_CHARACTERS)}
     
     ---
-    **Output Requirements**:
-    1. **Findings Integration**: If the Expert System found specific issues (above), validate them with the raw data and explain the 'Why' to the user.
-    2. **Status & Confidence**: Clearly state "Status: [Too early to optimize | Actionable]" and "Confidence: [High|Medium|Low]".
-    3. **Actionable Actions**: Audit existing bid modifiers. Suggest changes ONLY if thresholds are met.
-    4. Output in concise Markdown (Chinese).
+    **输出要求**:
+    1. **严格执行规则**: 按照上述【分析规则】中的阈值和条件进行判断
+    2. **状态与置信度**: 明确标注 "状态: [观察期 | 可行动]" 和 "置信度: [高|中|低]"
+    3. **具体行动建议**: 给出具体的优化建议（如排除词、调整出价等）
+    4. 输出格式：简洁的 Markdown，使用中文
     """
 
     res = sub_llm.invoke(prompt)
@@ -320,77 +360,86 @@ def scan_campaigns_for_anomalies(target_date: str = None) -> str:
     anomalies = get_campaign_anomalies_logic(target_date) 
     
     if not anomalies:
-         return "✅ Efficiency Check Passed: No campaigns triggered the strict 3-Day ROAS/CPA alerts."
+         return "✅ 效率巡检通过：没有广告系列触发 3 天 ROAS/CPA 预警。"
 
-    # Format for LLM
-    report = ["### 🚨 Anomaly Guard Report (Expert System Diagonosis)"]
-    report.append(f"**Trigger**: ROAS < 80% Avg OR CPA > 125% Avg (Last 3 Days) + No Growth.\n")
+    # 加载异常检测规则 (用户自定义或默认)
+    analysis_rules = ""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT rule_prompt FROM agent_custom_rules WHERE table_name = 'Anomalies' AND is_active = 1")
+        result = cursor.fetchone()
+        if result and result[0]:
+            analysis_rules = result[0]
+        conn.close()
+    except:
+        pass
     
+    if not analysis_rules:
+        expert = TABLE_EXPERT_KNOWLEDGE.get("Anomalies", {})
+        analysis_rules = expert.get("expert_rules", "")
+
+    # 准备数据给 LLM
+    report = []
     for a in anomalies:
         campaign_name = a.get('campaign', 'Unknown')
-        analysis_date = a.get('date')
         campaign_type = a.get('campaign_type', 'Unknown')
         
-        # 2. Context Guard
-        context = ContextGuard.check_risk({"campaign": campaign_name}, analysis_date)
+        # 收集相关数据供 LLM 分析
+        related_data = {}
         
-        # 3. Expert Engines - Route based on Campaign Type
-        expert_flags = []
+        # 搜索词数据
+        st_data = query_db("SELECT * FROM search_term WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 10", (campaign_name,))
+        if st_data:
+            related_data['search_term'] = st_data
         
-        # Determine which experts to call based on campaign_type
-        is_search = 'search' in campaign_type.lower()
-        is_pmax = 'pmax' in campaign_type.lower() or 'performance max' in campaign_type.lower()
+        # 渠道数据 (PMax)
+        ch_data = query_db("SELECT * FROM channel WHERE campaigns LIKE ? ORDER BY CAST(cost AS REAL) DESC LIMIT 10", (f"%{campaign_name}%",))
+        if ch_data:
+            related_data['channel'] = ch_data
         
-        # a. Search Term Expert (for Search campaigns)
-        if is_search:
-            st_flags = ExpertEngine.search_term_expert(campaign_name, analysis_date)
-            expert_flags.extend(st_flags)
-            kw_flags = ExpertEngine.keyword_expert(campaign_name, analysis_date)
-            expert_flags.extend(kw_flags)
+        # 商品数据
+        pr_data = query_db("SELECT * FROM product ORDER BY CAST(cost AS REAL) DESC LIMIT 10")
+        if pr_data:
+            related_data['product'] = pr_data
         
-        # b. Channel Expert (for PMax campaigns)
-        if is_pmax:
-            ch_flags = ExpertEngine.channel_expert(campaign_name, analysis_date)
-            expert_flags.extend(ch_flags)
-            pr_flags = ExpertEngine.product_expert(campaign_name, analysis_date)
-            expert_flags.extend(pr_flags)
+        # 地域数据
+        geo_data = query_db("SELECT * FROM location_by_cities_all_campaign WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 10", (campaign_name,))
+        if geo_data:
+            related_data['geo'] = geo_data
+
+        # 纯 LLM 分析
+        prompt = f"""
+        你是 Google Ads 全账户巡检专家。请严格按照以下规则分析异常广告系列。
         
-        # c. Demographics (for all campaigns)
-        demo_flags = ExpertEngine.demographics_expert(campaign_name, 'age', analysis_date)
-        expert_flags.extend(demo_flags)
-        demo_flags = ExpertEngine.demographics_expert(campaign_name, 'gender', analysis_date)
-        expert_flags.extend(demo_flags)
+        ---
+        ## ⚠️ 必须遵守的分析规则
         
-        # d. Geo Expert (for all campaigns)
-        geo_flags = ExpertEngine.geo_expert(campaign_name, analysis_date)
-        expert_flags.extend(geo_flags)
+        {analysis_rules}
         
-        # 4. Aggregate
-        final_diag = DiagnosisAggregator.aggregate(
-            campaign_name, 
-            trigger_info={"triggered": True, "details": a}, 
-            expert_flags=expert_flags, 
-            context_status=context
-        )
+        ---
+        ## 触发异常的广告系列
         
-        # 5. 构建报告小节
-        d = final_diag['diagnosis']
-        report.append(f"#### ⚠️ {campaign_name}")
-        report.append(f"**核心根本原因**: {d['root_cause']}")
-        report.append(f"**置信度**: {d['confidence']} | **行动建议等级**: {d['action_level']}")
+        **系列名称**: {campaign_name}
+        **系列类型**: {campaign_type}
+        **异常数据**: {json.dumps(a, ensure_ascii=False)}
         
-        if context['status'] != 'PASS':
-            report.append(f"**🛡️ 风险控制 (Context Guard)**: {', '.join(context['reasons'])}")
-            
-        if final_diag['flags']:
-            report.append("**关键发现**:")
-            for f in final_diag['flags']:
-                report.append(f"- **[{f['expert']}]** {f['issue']}: {f['evidence']}")
-        else:
-            report.append("*未发现明显的结构性或流量异常。可能属于纯宏观效率波动。*")
-            
-        report.append(f"\n*追踪: 逻辑版本 v1.0 | 规则覆盖率: {final_diag['trace_log']['coverage_ratio']*100:.0f}%*")
-        report.append("")
+        ## 相关维度数据
+        
+        {json.dumps(related_data, ensure_ascii=False, indent=2)[:8000]}
+        
+        ---
+        ## 输出要求
+        
+        1. **根本原因分析**: 判断效率下降的根本原因（流量质量、结构问题、市场变化）
+        2. **严格执行规则**: 按照上述规则中的阈值进行判断
+        3. **具体行动建议**: 给出可立即执行的优化建议
+        4. **置信度标注**: 标注分析的置信度 [高|中|低]
+        5. 输出格式：简洁 Markdown，中文
+        """
+        
+        llm_analysis = sub_llm.invoke(prompt).content
+        report.append(f"### ⚠️ {campaign_name}\n\n{llm_analysis}\n")
 
     return "\n".join(report)
 
@@ -829,6 +878,122 @@ def get_campaign_anomalies_logic(target_date: str = None):
         conn.close()
 
 
+def get_product_anomalies_logic(target_date: str = None):
+    """
+    Identify anomalous products for a specific date (defaults to latest in DB).
+    Similar logic to campaign anomalies but adapted for product metrics.
+    
+    Detection criteria:
+    1. High cost with low/no clicks (Zombie Products)
+    2. CTR declining trend (3-day consecutive decline)
+    3. Cost efficiency degradation
+    """
+    conn = get_db_connection()
+    try:
+        # 1. Determine the target "Today"
+        if not target_date:
+            cursor = conn.cursor()
+            cursor.execute("SELECT MAX(date) FROM product")
+            res = cursor.fetchone()
+            target_date = res[0] if res else None
+            if not target_date:
+                return []
+        
+        # 2. Fetch raw data (Last 14 days relative to target_date)
+        query = """
+            SELECT date, title, item_id, cost, clicks, impr, ctr, avg_cpc
+            FROM product 
+            WHERE date <= ? AND date >= date(?, '-14 days')
+            ORDER BY item_id, date ASC
+        """
+        df = pd.read_sql_query(query, conn, params=(target_date, target_date))
+        
+        if df.empty:
+            return []
+
+        # Clean and Convert
+        df['date'] = pd.to_datetime(df['date'])
+        target_dt = pd.to_datetime(target_date)
+        df['cost'] = pd.to_numeric(df['cost'].astype(str).str.replace('$', '').str.replace(',', ''), errors='coerce').fillna(0)
+        df['clicks'] = pd.to_numeric(df['clicks'], errors='coerce').fillna(0)
+        df['impr'] = pd.to_numeric(df['impr'], errors='coerce').fillna(0)
+        df['ctr'] = pd.to_numeric(df['ctr'].astype(str).str.replace('%', ''), errors='coerce').fillna(0)
+
+        anomalies = []
+        
+        # Group by product (item_id)
+        for item_id, group in df.groupby('item_id'):
+            group = group.sort_values('date')
+            if len(group) < 3:
+                continue
+
+            title = group['title'].iloc[-1] if 'title' in group.columns else 'Unknown Product'
+            last_date = target_dt
+            
+            # Get last 3 days data
+            last_3_days = group[group['date'] >= (last_date - pd.Timedelta(days=2))]
+            if last_3_days.empty:
+                continue
+                
+            # Get previous 7 days for comparison
+            prev_7_days = group[(group['date'] >= (last_date - pd.Timedelta(days=9))) & 
+                                (group['date'] <= (last_date - pd.Timedelta(days=3)))]
+            
+            # Current period metrics
+            curr_cost = last_3_days['cost'].sum()
+            curr_clicks = last_3_days['clicks'].sum()
+            curr_ctr = last_3_days['ctr'].mean()
+            
+            # Previous period metrics  
+            prev_cost = prev_7_days['cost'].sum() if not prev_7_days.empty else 0
+            prev_clicks = prev_7_days['clicks'].sum() if not prev_7_days.empty else 0
+            prev_ctr = prev_7_days['ctr'].mean() if not prev_7_days.empty else 0
+            
+            # Anomaly Detection Rules
+            reasons = []
+            
+            # Rule 1: Zombie Product (High cost, no clicks)
+            if curr_cost > 30 and curr_clicks == 0:
+                reasons.append(f"Zombie Product (Cost ${curr_cost:.2f}, 0 Clicks)")
+            
+            # Rule 2: CTR Decline > 30%
+            if prev_ctr > 0 and curr_ctr < prev_ctr * 0.7:
+                decline_pct = (prev_ctr - curr_ctr) / prev_ctr * 100
+                reasons.append(f"CTR -{decline_pct:.0f}%")
+            
+            # Rule 3: Cost Efficiency Degradation (cost up, clicks down)
+            if prev_cost > 0 and prev_clicks > 0:
+                prev_cpc = prev_cost / prev_clicks
+                curr_cpc = curr_cost / curr_clicks if curr_clicks > 0 else float('inf')
+                if curr_cpc > prev_cpc * 1.5 and curr_cost > 20:
+                    reasons.append(f"CPC +{((curr_cpc - prev_cpc) / prev_cpc * 100):.0f}%")
+            
+            if reasons:
+                anomalies.append({
+                    "id": str(item_id),
+                    "item_id": str(item_id),
+                    "title": str(title)[:50],  # Truncate long titles
+                    "date": last_date.strftime('%Y-%m-%d'),
+                    "curr_cost": float(curr_cost),
+                    "prev_cost": float(prev_cost),
+                    "curr_clicks": float(curr_clicks),
+                    "prev_clicks": float(prev_clicks),
+                    "curr_ctr": float(curr_ctr) if not pd.isna(curr_ctr) else 0.0,
+                    "prev_ctr": float(prev_ctr) if not pd.isna(prev_ctr) else 0.0,
+                    "reason": " & ".join(reasons)
+                })
+        
+        # Sort by cost (highest cost issues first)
+        anomalies.sort(key=lambda x: x['curr_cost'], reverse=True)
+        return anomalies[:20]  # Limit to top 20
+
+    except Exception as e:
+        print(f"Product Anomaly Detection Error: {e}")
+        return []
+    finally:
+        conn.close()
+
+
 class AgentService:
     def __init__(self):
         print(f"Initializing Main Agent with model={MAIN_MODEL_NAME}")
@@ -1121,6 +1286,10 @@ class AgentService:
         """Wrapper for standalone logic"""
         return get_campaign_anomalies_logic(target_date)
 
+    def get_product_anomalies(self, target_date: str = None):
+        """Wrapper for product anomaly detection"""
+        return get_product_anomalies_logic(target_date)
+
     def update_preference(self, table_name: str, item_identifier: str, is_pinned: int = None, display_order: int = None):
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -1296,3 +1465,23 @@ class AgentService:
             return {"error": str(e)}
         finally:
             conn.close()
+
+    def get_agent_default_prompt(self, table_name: str):
+        """Get the default prompt/rules for a specific agent from TABLE_EXPERT_KNOWLEDGE"""
+        if table_name in TABLE_EXPERT_KNOWLEDGE:
+            knowledge = TABLE_EXPERT_KNOWLEDGE[table_name]
+            return {
+                "title": knowledge.get("title", ""),
+                "focus": knowledge.get("focus", ""),
+                "metrics_desc": knowledge.get("metrics_desc", ""),
+                "expert_rules": knowledge.get("expert_rules", "").strip(),
+                "default_prompt": f"""【{knowledge.get("title", "")}】
+专注领域: {knowledge.get("focus", "")}
+指标说明: {knowledge.get("metrics_desc", "")}
+
+专家规则:
+{knowledge.get("expert_rules", "").strip()}"""
+            }
+        else:
+            return {"error": f"Unknown agent: {table_name}", "default_prompt": ""}
+

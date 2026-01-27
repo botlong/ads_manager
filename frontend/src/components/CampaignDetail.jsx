@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Loader } from 'lucide-react';
 import ResizableTable from './ResizableTable';
+import { API_BASE_URL } from '../config';
 
 // Helper for Anomaly Check
 const hasAnomaly = (row) => {
@@ -128,7 +129,7 @@ export default function CampaignDetail() {
             if (endDate) params.append('end_date', endDate);
 
             const queryString = params.toString();
-            const url = `http://localhost:8000/api/campaigns/${encodeURIComponent(campaignName)}/details${queryString ? '?' + queryString : ''}`;
+            const url = `${API_BASE_URL}/api/campaigns/${encodeURIComponent(campaignName)}/details${queryString ? '?' + queryString : ''}`;
 
             const response = await fetch(url);
             const result = await response.json();

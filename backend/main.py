@@ -73,6 +73,11 @@ async def get_campaign_anomalies(target_date: str = None):
     anomalies = agent.get_campaign_anomalies(target_date=target_date)
     return anomalies
 
+@app.get("/api/anomalies/product")
+async def get_product_anomalies(target_date: str = None):
+    anomalies = agent.get_product_anomalies(target_date=target_date)
+    return anomalies
+
 @app.post("/api/preferences")
 def update_preference(req: PreferenceUpdateRequest):
     response = agent.update_preference(
@@ -102,6 +107,11 @@ def save_custom_rule(req: CustomRuleRequest):
 def get_custom_rules(table_name: str):
     """Get saved custom rules for a table"""
     return agent.get_custom_rules(table_name)
+
+@app.get("/api/agent-prompts/{table_name}")
+def get_agent_default_prompt(table_name: str):
+    """Get the default prompt/rules for a specific agent"""
+    return agent.get_agent_default_prompt(table_name)
 
 if __name__ == "__main__":
     import uvicorn
