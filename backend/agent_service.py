@@ -398,28 +398,28 @@ def analyze_search_quality(campaign_name: str, start_date: str = None, end_date:
         date_filter = "AND date >= ? AND date <= ?"
         params = [start_date, end_date]
     
-    # Get search term data
+    # Get search term data - use SELECT * to avoid column name issues
     search_query = f"""
-        SELECT search_term, match_type, SUM(cost) as total_cost, SUM(conversions) as total_conv,
-               SUM(impressions) as total_clicks
-        FROM search_term 
+        SELECT * FROM search_term 
         WHERE campaign LIKE ? {date_filter}
-        GROUP BY search_term, match_type
+        ORDER BY CAST(cost AS REAL) DESC
+        LIMIT 50
     """
     search_data = query_db(search_query, (f"%{campaign_name}%", *params))
     
     if not search_data:
         return {"verdicts": [], "evidence": {"note": "无搜索词数据"}, "junk_terms": [], "recommendations": []}
     
-    # Calculate match type stats
+    # Calculate match type stats - use raw column names from SELECT *
     match_stats = {}
     for row in search_data:
         mt = (row.get('match_type') or 'Unknown').lower()
         if mt not in match_stats:
             match_stats[mt] = {'cost': 0, 'conv': 0, 'clicks': 0}
-        match_stats[mt]['cost'] += row.get('total_cost', 0) or 0
-        match_stats[mt]['conv'] += row.get('total_conv', 0) or 0
-        match_stats[mt]['clicks'] += row.get('total_clicks', 0) or 0
+        # Use raw column names (cost, conversions) since we're using SELECT *
+        match_stats[mt]['cost'] += float(row.get('cost', 0) or 0)
+        match_stats[mt]['conv'] += float(row.get('conversions', 0) or 0)
+        match_stats[mt]['clicks'] += float(row.get('impr', row.get('impressions', 0)) or 0)
     
     total_cost = sum(m['cost'] for m in match_stats.values())
     
@@ -852,7 +852,7 @@ def scan_campaigns_for_anomalies(target_date: str = None) -> str:
             related_data['product'] = pr_data
         
         # 地域数据
-        geo_data = query_db("SELECT * FROM location WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 15", (campaign_name,))
+        geo_data = query_db("SELECT * FROM location_by_cities_all_campaign WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 15", (campaign_name,))
         if geo_data:
             related_data['geo'] = geo_data
         
@@ -987,12 +987,12 @@ def call_pmax_agent(campaign_name: str, issues: List[str], start_date: str = Non
     # C. Location Analysis (Keep existing logic - straightforward)
     # =========================================================================
     try:
-        locs = query_db("SELECT location_name, cost, conversions FROM location WHERE campaign = ? AND CAST(cost AS REAL) > 50 AND CAST(conversions AS REAL) = 0 ORDER BY CAST(cost AS REAL) DESC LIMIT 3", (campaign_name,))
+        locs = query_db("SELECT location, cost, conversions FROM location_by_cities_all_campaign WHERE campaign = ? AND CAST(cost AS REAL) > 50 AND CAST(conversions AS REAL) = 0 ORDER BY CAST(cost AS REAL) DESC LIMIT 3", (campaign_name,))
         report.append("#### 🌍 C. Location Analysis")
         if locs:
             report.append("❌ **Money Wasting Locations**:")
             for l in locs:
-                report.append(f"- **{l.get('location_name', l.get('location', 'Unknown'))}**: Cost ${l.get('cost')}, 0 Conv")
+                report.append(f"- **{l.get('location', 'Unknown')}**: Cost ${l.get('cost')}, 0 Conv")
             report.append("👉 **Action**: Exclude these locations in Campaign Settings.")
         else:
             report.append("✅ No high-spend zero-conversion locations found.")
