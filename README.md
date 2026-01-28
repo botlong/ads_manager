@@ -4,12 +4,27 @@ A powerful AI-driven application for analyzing advertising campaigns. It combine
 
 ## ✨ Features
 
+### Dashboard & Analytics
 - **Dashboard**: Interactive data table with sorting, filtering, and date range selection.
 - **Campaign Details**: Deep dive into specific campaigns with lazy-loaded tables for Products, Search Terms, Locations, etc.
-- **AI Agents**:
-  - **Main Agent**: Orchetsrates tasks and monitors anomalies (uses "Pro" reasoning model).
-  - **Sub Agents**: Specialized agents for Pmax and Search campaigns (uses "Flash" speed model) to generate detailed reports.
-- **Performance**: Optimized SQLite database with indexes and virtualized frontend scrolling for handling large datasets (18k+ products).
+- **Resizable Tables**: Flexible column widths with persistent settings.
+
+### Anomaly Detection
+- **Anomaly Monitor**: Real-time detection of performance anomalies with sortable metrics (Conversions, ROAS, CPA, and their changes).
+- **Product Monitor**: Product-level anomaly detection and monitoring integrated into the dashboard.
+- **Custom Rules**: User-defined rules for anomaly thresholds and detection logic.
+
+### AI Agents
+- **Main Agent**: Orchestrates tasks and monitors anomalies (uses "Pro" reasoning model).
+- **Sub Agents**: Specialized agents for Pmax and Search campaigns (uses "Flash" speed model) to generate detailed reports.
+- **Pure LLM Analysis**: Direct LLM-based data interpretation with user-customizable prompts and rules.
+- **Expert System**: Advanced rule-based analysis engine for campaign optimization.
+- **Per-Agent Rule Editor**: Configure custom rules for each specialized agent.
+
+### Performance
+- Optimized SQLite database with indexes for handling large datasets (18k+ products).
+- Virtualized frontend scrolling for smooth UI performance.
+- Lazy-loaded data tables for efficient memory usage.
 
 ## 🛠️ Tech Stack
 
@@ -37,7 +52,6 @@ source venv/bin/activate
 
 # Install dependencies from root
 pip install -r ../requirements.txt
-# (Note: manual install if requirements.txt missing: fastapi uvicorn pandas langchain-openai langgraph python-dotenv)
 ```
 
 ### 2. Configuration (.env)
@@ -54,7 +68,7 @@ API_KEY=your-api-key                # "not-needed" for local Ollama
 
 # Model Selection
 MAIN_MODEL_NAME=qwen2.5-72b-instruct   # High intelligence for routing
-SUB_MAIN_MODEL_NAM=gemini-1.5-flash    # High speed for data analysis (Note variable name spelling)
+SUB_MAIN_MODEL_NAME=gemini-1.5-flash   # High speed for data analysis
 ```
 
 ### 3. Frontend Setup
@@ -90,18 +104,31 @@ npm run dev
 ```
 ads_manager/
 ├── backend/
-│   ├── agent_service.py   # AI Logic (Main & Sub Agents)
-│   ├── main.py           # FastAPI Routes
-│   ├── .env              # Configuration
-│   └── ...
+│   ├── main.py              # FastAPI Routes & API endpoints
+│   ├── agent_service.py     # AI Logic (Main & Sub Agents)
+│   ├── expert_system.py     # Rule-based analysis engine
+│   ├── auth.py              # Authentication module
+│   ├── init_prefs_db.py     # Preferences database initialization
+│   └── .env                 # Configuration
 ├── frontend/
-│   ├── src/
-│   │   ├── components/   # Dashboard, CampaignDetail, etc.
-│   │   └── ...
-│   └── ...
-└── ads_data.sqlite       # Database (Auto-generated/Indexed)
+│   └── src/
+│       └── components/
+│           ├── Dashboard.jsx           # Main dashboard view
+│           ├── CampaignDetail.jsx      # Campaign detail page
+│           ├── AnomalyDashboard.jsx    # Anomaly monitoring panel
+│           ├── ProductMonitor.jsx      # Product anomaly monitor
+│           ├── AgentChat.jsx           # AI agent chat interface
+│           ├── ResizableTable.jsx      # Flexible data table component
+│           ├── CustomRuleEditor.jsx    # Custom rule configuration
+│           ├── PerAgentRuleEditor.jsx  # Per-agent rule settings
+│           └── Login.jsx               # Authentication page
+├── ads_data.sqlite           # Database (Auto-generated/Indexed)
+├── requirements.txt          # Python dependencies
+└── import_ads_data.py        # Data import utility
 ```
 
 ## ⚠️ Notes
-- The database is automatically optimizing with indexes on `campaign` and `date` columns for performance.
-- If you clone this repo, you **must** run `npm install` in the frontend directory again.
+
+- The database is automatically optimized with indexes on `campaign` and `date` columns for performance.
+- If you clone this repo, you **must** run `npm install` in the frontend directory.
+- Custom analysis rules can be configured through the UI and are persisted per-agent.
