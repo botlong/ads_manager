@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Loader } from 'lucide-react';
 import ResizableTable from './ResizableTable';
 import { API_BASE_URL } from '../config';
+import { useAuth } from '../context/AuthContext';
 
 // Helper for Anomaly Check
 const hasAnomaly = (row) => {
@@ -113,9 +114,19 @@ export default function CampaignDetail() {
     const [searchParams] = useSearchParams();
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const { authFetch } = useAuth();
 
     const startDate = searchParams.get('start_date');
     const endDate = searchParams.get('end_date');
+
+    // Check if this is an anomaly click
+    const isAnomaly = searchParams.get('anomaly') === 'true';
+    const anomalyReason = searchParams.get('reason') || '';
+    const currRoas = parseFloat(searchParams.get('curr_roas')) || 0;
+    const prevRoas = parseFloat(searchParams.get('prev_roas')) || 0;
+    const currCpa = parseFloat(searchParams.get('curr_cpa')) || 0;
+    const prevCpa = parseFloat(searchParams.get('prev_cpa')) || 0;
+    const growth = parseFloat(searchParams.get('growth')) || 0;
 
     useEffect(() => {
         fetchCampaignDetails();
@@ -129,9 +140,12 @@ export default function CampaignDetail() {
             if (endDate) params.append('end_date', endDate);
 
             const queryString = params.toString();
-            const url = `${API_BASE_URL}/api/campaigns/${encodeURIComponent(campaignName)}/details${queryString ? '?' + queryString : ''}`;
+            // Use anomaly-details API if coming from Anomaly Monitor, otherwise use regular details API
+            const endpoint = isAnomaly ? 'anomaly-details' : 'details';
+            const url = `${API_BASE_URL}/api/campaigns/${encodeURIComponent(campaignName)}/${endpoint}${queryString ? '?' + queryString : ''}`;
 
-            const response = await fetch(url);
+            // Use authFetch instead of fetch
+            const response = await authFetch(url);
             const result = await response.json();
 
             // Post-process: Calculate real-time ROAS (Income / Cost) for strict accuracy
@@ -293,33 +307,156 @@ export default function CampaignDetail() {
                     </div>
                 </div>
 
+                {/* Anomaly Diagnosis Banner - Only shown when coming from Anomaly Monitor */}
+                {isAnomaly && (
+                    <div style={{
+                        margin: '20px 30px 0 30px',
+                        padding: '20px',
+                        background: 'linear-gradient(135deg, #ffe6e6 0%, #fff5f5 100%)',
+                        border: '2px solid #ffcaca',
+                        borderRadius: '12px',
+                        boxShadow: '0 4px 12px rgba(255, 0, 0, 0.1)'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
+                            <span style={{ fontSize: '24px' }}>🚨</span>
+                            <h3 style={{ margin: 0, color: '#d32f2f', fontSize: '18px' }}>
+                                异常诊断报告 (Anomaly Diagnosis)
+                            </h3>
+                        </div>
+
+                        {/* Reason */}
+                        <div style={{
+                            background: '#fff',
+                            padding: '12px 16px',
+                            borderRadius: '8px',
+                            marginBottom: '15px',
+                            border: '1px solid #ffcaca'
+                        }}>
+                            <div style={{ fontSize: '12px', color: '#999', marginBottom: '4px' }}>判定原因 (Verdict)</div>
+                            <div style={{ fontSize: '15px', fontWeight: '600', color: '#d32f2f' }}>
+                                {anomalyReason || '效率异常'}
+                            </div>
+                        </div>
+
+                        {/* Metrics Grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '15px' }}>
+                            <div style={{ background: '#fff', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '11px', color: '#999', textTransform: 'uppercase' }}>ROAS 变化</div>
+                                <div style={{ fontSize: '16px', fontWeight: '600', color: currRoas < prevRoas ? '#d32f2f' : '#4caf50' }}>
+                                    {prevRoas.toFixed(2)} → {currRoas.toFixed(2)}
+                                </div>
+                                <div style={{ fontSize: '12px', color: currRoas < prevRoas ? '#d32f2f' : '#4caf50' }}>
+                                    {prevRoas > 0 ? ((currRoas - prevRoas) / prevRoas * 100).toFixed(1) : 0}%
+                                </div>
+                            </div>
+                            <div style={{ background: '#fff', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '11px', color: '#999', textTransform: 'uppercase' }}>CPA 变化</div>
+                                <div style={{ fontSize: '16px', fontWeight: '600', color: currCpa > prevCpa ? '#d32f2f' : '#4caf50' }}>
+                                    ${prevCpa.toFixed(2)} → ${currCpa.toFixed(2)}
+                                </div>
+                                <div style={{ fontSize: '12px', color: currCpa > prevCpa ? '#d32f2f' : '#4caf50' }}>
+                                    {prevCpa > 0 ? ((currCpa - prevCpa) / prevCpa * 100).toFixed(1) : 0}%
+                                </div>
+                            </div>
+                            <div style={{ background: '#fff', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '11px', color: '#999', textTransform: 'uppercase' }}>转化增长</div>
+                                <div style={{ fontSize: '16px', fontWeight: '600', color: growth <= 0 ? '#d32f2f' : '#4caf50' }}>
+                                    {growth.toFixed(1)}%
+                                </div>
+                                <div style={{ fontSize: '12px', color: growth <= 0 ? '#d32f2f' : '#4caf50' }}>
+                                    {growth <= 0 ? '无增长' : '正增长'}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Hard-coded Recommendations */}
+                        <div style={{
+                            background: '#fff9c4',
+                            padding: '12px 16px',
+                            borderRadius: '8px',
+                            border: '1px solid #fff59d'
+                        }}>
+                            <div style={{ fontSize: '12px', color: '#f57f17', fontWeight: '600', marginBottom: '8px' }}>
+                                ⚡ 硬规则建议 (Hard-Coded Recommendations)
+                            </div>
+                            <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', color: '#333' }}>
+                                {currRoas < prevRoas * 0.8 && (
+                                    <li>ROAS 下降超过 20%，建议检查关键词匹配和受众定向</li>
+                                )}
+                                {currCpa > prevCpa * 1.25 && (
+                                    <li>CPA 上升超过 25%，建议降低出价或优化落地页</li>
+                                )}
+                                {growth <= 0 && (
+                                    <li>转化无增长，建议扩展受众或增加预算测试</li>
+                                )}
+                                {anomalyReason.includes('ROAS') && (
+                                    <li>检查 Search Term 报告，排除低效搜索词</li>
+                                )}
+                                {anomalyReason.includes('CPA') && (
+                                    <li>检查受众和地域数据，排除高消耗零转化项</li>
+                                )}
+                            </ul>
+                        </div>
+                    </div>
+                )}
+
                 {/* Content */}
                 <div style={{ padding: '30px' }}>
-                    {data && Object.keys(tableLabels).map((tableName) => (
-                        <div key={tableName} style={{
-                            marginBottom: '30px',
-                            background: '#f8f9fa',
-                            borderRadius: '12px',
-                            overflow: 'hidden',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                        }}>
-                            <div style={{
-                                padding: '15px 20px',
-                                background: 'white',
-                                borderBottom: '2px solid #667eea'
+                    {data && Object.keys(tableLabels).map((tableName) => {
+                        const tableInfo = data[tableName];
+                        const hasData = tableInfo && tableInfo.data && tableInfo.data.length > 0;
+                        // Only show warning if there are actual anomaly rows (anomaly_count > 0)
+                        const hasRealAnomalies = tableInfo?.anomaly_count > 0;
+                        const ruleDesc = tableInfo?.rule;
+
+                        // 如果表不存在，不显示这个视图
+                        if (ruleDesc === '表不存在' || ruleDesc === '查询错误') {
+                            return null;
+                        }
+
+                        return (
+                            <div key={tableName} style={{
+                                marginBottom: '30px',
+                                background: '#f8f9fa',
+                                borderRadius: '12px',
+                                overflow: 'hidden',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                                border: isAnomaly && hasRealAnomalies ? '2px solid #d32f2f' : 'none'
                             }}>
-                                <h2 style={{
-                                    margin: 0,
-                                    fontSize: '18px',
-                                    fontWeight: '600',
-                                    color: '#333'
+                                <div style={{
+                                    padding: '15px 20px',
+                                    background: isAnomaly && hasRealAnomalies ? '#ffebee' : 'white',
+                                    borderBottom: isAnomaly && hasRealAnomalies ? '2px solid #d32f2f' : '2px solid #667eea'
                                 }}>
-                                    {tableLabels[tableName]}
-                                </h2>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <h2 style={{
+                                            margin: 0,
+                                            fontSize: '18px',
+                                            fontWeight: '600',
+                                            color: isAnomaly && hasRealAnomalies ? '#d32f2f' : '#333'
+                                        }}>
+                                            {isAnomaly && hasRealAnomalies && '⚠️ '}
+                                            {tableLabels[tableName]}
+                                            {hasData && ` (${tableInfo.data.length})`}
+                                        </h2>
+                                        {isAnomaly && ruleDesc && (
+                                            <span style={{
+                                                fontSize: '12px',
+                                                color: ruleDesc === '无异常' ? '#4caf50' : '#d32f2f',
+                                                background: ruleDesc === '无异常' ? '#e8f5e9' : '#ffebee',
+                                                padding: '4px 10px',
+                                                borderRadius: '4px',
+                                                fontWeight: '500'
+                                            }}>
+                                                {ruleDesc}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                                {renderTable(tableName, tableInfo)}
                             </div>
-                            {renderTable(tableName, data[tableName])}
-                        </div>
-                    ))}
+                        )
+                    })}
                 </div>
             </div>
         </div>

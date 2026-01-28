@@ -4,6 +4,7 @@ import { MessageSquare, X, Menu, Plus, Send, Trash2, Edit, Check, Sparkles, Maxi
 import CustomRuleEditor from './CustomRuleEditor';
 import PerAgentRuleEditor from './PerAgentRuleEditor';
 import { API_BASE_URL } from '../config';
+import { useAuth } from '../context/AuthContext';
 
 export default function AgentChat() {
     const [isOpen, setIsOpen] = useState(false);
@@ -13,6 +14,7 @@ export default function AgentChat() {
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [showSidebar, setShowSidebar] = useState(false);
+    const { authFetch } = useAuth();
 
     // --- Table Selection State ---
     const [selectedTables, setSelectedTables] = useState(['Anomalies', 'Campaigns', 'Products', 'search_term', 'asset', 'audience', 'age', 'gender', 'location', 'ad_schedule', 'channel']);
@@ -142,7 +144,7 @@ export default function AgentChat() {
         if (!customRuleText.trim()) return;
         setRuleSaveStatus('saving');
         try {
-            const response = await fetch(`${API_BASE_URL}/api/agent-rules`, {
+            const response = await authFetch(`${API_BASE_URL}/api/agent-rules`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -186,7 +188,7 @@ export default function AgentChat() {
         const messageHistory = currentMsgs.map(m => ({ role: m.role, content: m.content })).slice(-10);
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/chat`, {
+            const response = await authFetch(`${API_BASE_URL}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -341,24 +343,30 @@ export default function AgentChat() {
         const dir = resizeDir.current;
 
         if (dir.includes('e')) {
-            newWidth = Math.max(350, resizeStart.current.w + deltaX);
+            newWidth = Math.max(350, Math.min(resizeStart.current.w + deltaX, window.innerWidth - newLeft - 10));
         } else if (dir.includes('w')) {
             const proposedWidth = resizeStart.current.w - deltaX;
-            if (proposedWidth >= 350) {
+            if (proposedWidth >= 350 && resizeStart.current.l + deltaX >= 0) {
                 newWidth = proposedWidth;
                 newLeft = resizeStart.current.l + deltaX;
             }
         }
 
         if (dir.includes('s')) {
-            newHeight = Math.max(450, resizeStart.current.h + deltaY);
+            newHeight = Math.max(450, Math.min(resizeStart.current.h + deltaY, window.innerHeight - newTop - 10));
         } else if (dir.includes('n')) {
             const proposedHeight = resizeStart.current.h - deltaY;
-            if (proposedHeight >= 450) {
+            if (proposedHeight >= 450 && resizeStart.current.t + deltaY >= 0) {
                 newHeight = proposedHeight;
                 newTop = resizeStart.current.t + deltaY;
             }
         }
+
+        // 确保窗口不超出视口
+        if (newLeft < 0) newLeft = 0;
+        if (newTop < 0) newTop = 0;
+        if (newLeft + newWidth > window.innerWidth) newWidth = window.innerWidth - newLeft;
+        if (newTop + newHeight > window.innerHeight) newHeight = window.innerHeight - newTop;
 
         setWindowSize({ width: newWidth, height: newHeight });
         setPosition({ x: newLeft, y: newTop });

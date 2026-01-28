@@ -46,134 +46,190 @@ TABLE_EXPERT_KNOWLEDGE = {
     "Anomalies": {
         "title": "Anomaly Guard (异常巡检专家)",
         "focus": "全账户自动巡检，识别效率异常与增长停滞。",
-        "metrics_desc": "campaign: 系列名, roas: 广告支出回报率, cpa: 单次转化成本, conversions: 转化数",
-        "expert_rules": """
-        - **ROAS 崩盘**: 3天 ROAS < 账户均值 80% -> 触发深度诊断
-        - **CPA 飙升**: 3天 CPA > 账户均值 125% -> 触发成本异常警报
-        - **增长停滞**: 7天同比转化零增长 -> 标记增长风险
-        - **风控保护**: 大促期/冷启动期自动降级风险动作
-        """
-    },
-    "Campaigns": {
-        "title": "Campaign Manager (广告系列管理专家)",
-        "focus": "广告系列整体健康度评估与优化建议。",
-        "metrics_desc": "campaign: 名称, cost: 消耗, conversions: 转化, roas: ROAS, cpa: CPA",
-        "expert_rules": """
-        - **预算效率**: 预算消耗率 < 70% -> 检查定向或出价
-        - **转化质量**: 转化价值/转化数 持续下降 -> 检查落地页或受众
-        - **系列结构**: 同系列广告组数量 > 10 -> 建议精简结构
-        """
-    },
-    "Products": {
-        "title": "Product Specialist (产品专家)",
-        "focus": "商品/SKU 层级效率分析。",
-        "metrics_desc": "product_title: 商品名, item_id: SKU, cost: 消耗, conversions: 转化, roas: ROAS",
-        "expert_rules": """
-        - **僵尸商品**: 消耗 > $80 且 0 转化 -> 建议排除
-        - **冷启动保护**: 新品消耗 < $30 -> 暂不优化
-        - **预算霸占**: 单品占预算 > 85% -> 警告测试饥饿风险
-        """
-    },
-    "asset": {
-        "title": "Creative Asset Expert (素材创意专家)",
-        "focus": "创意素材效果评估与轮换建议。",
-        "metrics_desc": "asset_name: 素材名, asset_type: 类型, cost: 消耗, conversions: 转化, ctr: 点击率",
-        "expert_rules": """
-        - **疲劳检测**: CTR 连续 7 天下降 > 20% -> 建议更换素材
-        - **效果分层**: 按 ROAS 分为 Top/Middle/Bottom 三档
-        - **格式建议**: 视频素材 CTR 通常高于静态图，注意对比
-        """
-    },
-    "location": {
-        "title": "Location & Geo Expert (地域专家)",
-        "focus": "地理位置投放效率分析。",
-        "metrics_desc": "location: 位置, cost: 消耗, conversions: 转化, roas: ROAS",
-        "expert_rules": """
-        - **黑洞检测**: 消耗 >= $100 且 0 转化 -> 建议排除
-        - **效率风险**: CPA >= 2x 均值 -> 建议降低出价 30%
-        - **观察期**: 消耗 < $50 或 点击 < 50 -> 数据不足，继续观察
-        """
-    },
-    "age": {
-        "title": "Age Demographics Expert (年龄分层专家)",
-        "focus": "Audit demographic efficiency with high statistical stability.",
-        "metrics_desc": "age: Range, bid_adj: Existing Modifier, cost: Spend, conversions: Units, ctr: CTR",
-        "expert_rules": """
-        - **Tier 1: Observation (Low Sample)**: If 'clicks' < 25, status is "Too early to optimize". Only note extreme CTR anomalies.
-        - **Tier 2: Risk (Delayed Conv Guard)**: If segment is < 7 days old, do not recommend exclusion. Only minor bid reduction if CPA > 2x avg.
-        - **Tier 3: Actionable (High Confidence)**: Spend > 2x Account CPA AND 0 Conv over 14+ days -> Recommend -50% bid or exclusion.
-        - **Unknown Guard**: Protected status. Do not exclude unless spend is 3x higher than converted segments with 0 ROAS.
-        """
-    },
-    "gender": {
-        "title": "Gender Demographics Expert (性别分层专家)",
-        "focus": "Identify structural gender imbalances.",
-        "metrics_desc": "gender: Category, cost: Spend, conversions: Units, ctr: CTR",
-        "expert_rules": """
-        - **Confidence**: Requires min 100 clicks or 10 conversions for major advice.
-        - **Protection**: If one gender has high CTR but 0 Conv, check if Landing Page is gender-neutral before excluding.
-        """
-    },
-    "search_term": {
-        "title": "Search Term Analyst (搜索词专家)",
-        "focus": "Aggressive junk filtering with Brand Protection.",
-        "metrics_desc": "search_term: query, match_type: Match, cost: Spend, conversions: Conv, roas: ROAS",
-        "expert_rules": """
-        - **Brand Umbrella**: If search_term contains Brand/Product core name, mark as "Strategic Asset". Keep even if 0 ROAS for now.
-        - **Junk Patterns**: Immediate 'Critical' for terms like 'free', 'repair', 'whatsapp', 'support', 'login' (Non-sales intent).
-        - **Broad Match Audit**: If > 60% of waste flows through 'Broad' match, recommend shifting to Phrase/Exact.
-        - **Tiering**: Spend > 1.5x CPA + 0 Conv -> 'High Confidence' Negative Recommendation.
-        """
-    },
-    "location_by_cities_all_campaign": {
-        "title": "Geography Analyst (地域/城市专家)",
-        "focus": "Three-tier regional auditing.",
-        "metrics_desc": "matched_location: Location, cost: Spend, conversions: Conv, roas: ROAS",
-        "expert_rules": """
-        - **Tier 1: High Confidence Blackhole**: Spend >= $100 AND 0 Conv AND Historical 30d Conv = 0 -> Recommend Exclusion.
-        - **Tier 2: Efficiency Risk**: CPA >= 2x Avg CPA -> Recommend -30% bid reduction.
-        - **Tier 3: Observation**: Spend < $50 OR Clicks < 50 -> Status "Observing". Data too sparse for regional exclusion.
-        """
-    },
-    "ad_schedule": {
-        "title": "Time & Schedule Analyst (分时专家)",
-        "focus": "Peak/Trough pattern identification with stability guard.",
-        "metrics_desc": "day_and_time: Slot, cost: Spend, conversions: Conv, roas: ROAS",
-        "expert_rules": """
-        - **Stability Rule**: Minimum 100 clicks per slot (over 30 days) required for -50% modifier recommendation.
-        - **Delayed Return Protection**: Be cautious with 00:00-05:00 slots as conversions often attribute late. 
-        - **Action**: Only target extreme 'Midnight Waste' (Spend > 3x CPA, 0 Conv) for aggressive exclusion.
-        """
-    },
-    "audience": {
-        "title": "Audience Segment Analyst (受众专家)",
-        "focus": "Signal-to-noise auditing.",
-        "metrics_desc": "audience_segment: Signal, cost: Spend, conversions: Conv, roas: ROAS",
-        "expert_rules": """
-        - **Tiering**: Focus on high-spend zero-ROI 'In-market' segments.
-        - **Confidence**: Require min 5 Conversions before recommending 'Targeting' instead of 'Observation'.
-        """
-    },
-    "product": {
-        "title": "Product SKU Analyst (产品/货架专家)",
-        "focus": "Zombie detection and Cold Start Protection.",
-        "metrics_desc": "title: Name, item_id: SKU, cost: Spend, conversions: Conv, roas: ROAS",
-        "expert_rules": """
-        - **Cold Start Protection**: New SKUs (Total Spend < $30) are 'Protected'. Do not flag as Zombie yet.
-        - **High-Confidence Zombie**: Spend > $80 AND 0 Conv -> Recommend Status 'Excluded' in Listing Group.
-        - **Budget Hegemony**: If 1 product takes > 85% budget, flag as "Testing Starvation Risk".
+        "data_source": "campaign 表 - 按日期聚合的广告系列数据",
+        "extraction_method": """
+        1. 获取最近3天数据 (current_3d) 和前7天数据 (prev_7d)
+        2. 计算均值: avg_roas = mean(prev_7d.roas), avg_cpa = mean(prev_7d.cpa)
+        3. 计算增长率: growth = (current_3d.conv - prev_7d.conv) / prev_7d.conv
+        """,
+        "hard_rules": """
+        🔴 ROAS崩盘: current_roas < avg_roas * 0.8 → 触发
+        🔴 CPA飙升: current_cpa > avg_cpa * 1.25 → 触发
+        🟡 增长停滞: growth <= 0 → 标记无增长风险
+        ⛔ 风控保护: 大促期(双十一/黑五等)自动跳过
         """
     },
     "channel": {
         "title": "PMax Channel Analyst (PMax 渠道专家)",
-        "focus": "Cross-channel subsidy auditing.",
-        "metrics_desc": "channels: Type, cost: Spend, conversions: Conv, roas: ROAS",
-        "expert_rules": """
-        - **Subsidy Check**: Flag if 'Shopping' (Feed) is subsidizing > 40% waste in 'Video/Display'.
-        - **Structure Risk**: If Video Spend > 30% AND Video CPA > 2.5x Target -> High Risk Recommendation.
+        "focus": "PMax 渠道效率分析，识别低效流量吞噬。",
+        "data_source": "channel 表 - PMax 渠道分布数据",
+        "extraction_method": """
+        函数: analyze_pmax_channel_efficiency(campaign_name, start_date, end_date)
+        1. 按渠道聚合: SUM(cost), SUM(conv_value) GROUP BY channels
+        2. 计算占比: spend_share = channel_cost / total_cost * 100
+        3. 计算ROAS: channel_roas = conv_value / cost
+        4. 获取账户均值: SELECT AVG(roas) FROM campaign
+        """,
+        "hard_rules": """
+        🔴 Display占比>35% 且 ROAS<账户均值50% → "PMax吃低效流量"
+        🟡 Video占比>30% 且 CPA>2.5x Target → "Video渠道高风险"
+        ⚠️ ROAS Bottom 20% 渠道 → 标记为低效渠道
+        """
+    },
+    "search_term": {
+        "title": "Search Term Analyst (搜索词专家)",
+        "focus": "搜索流量质量分析，识别低质匹配与垃圾词。",
+        "data_source": "search_term 表 - 搜索词级别数据",
+        "extraction_method": """
+        函数: analyze_search_quality(campaign_name, start_date, end_date)
+        1. 按匹配类型聚合: SUM(cost), SUM(conv) GROUP BY match_type
+        2. 计算CPA: match_cpa = cost / conv
+        3. 计算占比: spend_share = match_cost / total_cost * 100
+        4. 关键词匹配: 检测垃圾模式 (free, repair, support, login 等)
+        """,
+        "hard_rules": """
+        🔴 Broad占比>40% 且 Broad_CPA>1.5x Exact_CPA → "流量匹配质量下滑"
+        🟡 检测到垃圾搜索词 (非购买意图) → 建议添加否定关键词
+        """
+    },
+    "product": {
+        "title": "Product SKU Analyst (产品/货架专家)",
+        "focus": "商品结构分析，识别僵尸商品与预算垄断。",
+        "data_source": "product 表 - 商品级别数据",
+        "extraction_method": """
+        函数: analyze_product_structure(campaign_name, start_date, end_date)
+        1. 按商品聚合: SUM(cost), SUM(clicks) GROUP BY item_id
+        2. 计算占比: top_share = top_product_cost / total_cost * 100
+        3. 计算均价: avg_price = mean(all_products.price)
+        4. 识别低价高消耗: price < avg_price * 0.5 AND cost > 20
+        """,
+        "hard_rules": """
+        🔴 单品占预算>85% → "测试饥饿风险"
+        🟡 Cost>$50 且 Clicks=0 → "僵尸商品"
+        🟡 高消耗商品集中在低价SKU → "结构性毛利问题"
+        """
+    },
+    "campaign": {
+        "title": "Campaign Manager (广告系列管理专家)",
+        "focus": "广告系列整体表现评估与时间对比。",
+        "data_source": "campaign 表 - 系列级别数据",
+        "extraction_method": """
+        函数: calculate_time_comparison(table, campaign, metric, window_days)
+        1. 获取当前N天: SUM(metric) WHERE date >= current_start
+        2. 获取前N天: SUM(metric) WHERE date >= previous_start AND date < current_start
+        3. 计算变化: change_pct = (current - previous) / previous * 100
+        """,
+        "hard_rules": """
+        📈 change_pct > 10% → "上升"
+        📉 change_pct < -10% → "下降"
+        ➡️ -10% <= change_pct <= 10% → "持平"
+        """
+    },
+    "location": {
+        "title": "Location Expert (地域专家)",
+        "focus": "地理位置效率分析，识别预算黑洞。",
+        "data_source": "location_by_cities_all_campaign 表",
+        "extraction_method": """
+        直接查询: SELECT * WHERE cost > 50 AND conversions = 0
+        """,
+        "hard_rules": """
+        ❌ Cost>$50 且 Conv=0 → "预算黑洞，建议排除"
+        """
+    },
+    "audience": {
+        "title": "Audience Analyst (受众专家)",
+        "focus": "受众效率分析，识别低效信号。",
+        "data_source": "audience 表 - 受众信号数据",
+        "extraction_method": """
+        直接查询: SELECT * ORDER BY cost DESC LIMIT 10
+        """,
+        "hard_rules": """
+        ❌ Cost>$50 且 Conv=0 → "高消耗零转化受众，建议排除"
+        """
+    },
+    # Aliases for frontend compatibility (大写开头的别名)
+    "Campaigns": {
+        "title": "Campaign Manager (广告系列管理专家)",
+        "focus": "广告系列整体表现评估与时间对比。",
+        "data_source": "campaign 表 - 系列级别数据",
+        "extraction_method": """
+        函数: calculate_time_comparison(table, campaign, metric, window_days)
+        1. 获取当前N天: SUM(metric) WHERE date >= current_start
+        2. 获取前N天: SUM(metric) WHERE date >= previous_start AND date < current_start
+        3. 计算变化: change_pct = (current - previous) / previous * 100
+        """,
+        "hard_rules": """
+        📈 change_pct > 10% → "上升"
+        📉 change_pct < -10% → "下降"
+        ➡️ -10% <= change_pct <= 10% → "持平"
+        """
+    },
+    "Products": {
+        "title": "Product SKU Analyst (产品/货架专家)",
+        "focus": "商品结构分析，识别僵尸商品与预算垄断。",
+        "data_source": "product 表 - 商品级别数据",
+        "extraction_method": """
+        函数: analyze_product_structure(campaign_name, start_date, end_date)
+        1. 按商品聚合: SUM(cost), SUM(clicks) GROUP BY item_id
+        2. 计算占比: top_share = top_product_cost / total_cost * 100
+        3. 识别僵尸商品: cost > 50 AND clicks = 0
+        """,
+        "hard_rules": """
+        🔴 单品占预算>85% → "测试饥饿风险"
+        🟡 Cost>$50 且 Clicks=0 → "僵尸商品"
+        🟡 高消耗商品集中在低价SKU → "结构性毛利问题"
+        """
+    },
+    "asset": {
+        "title": "Creative Asset Analyst (素材创意专家)",
+        "focus": "创意素材效果评估。",
+        "data_source": "asset 表 - 素材级别数据",
+        "extraction_method": """
+        直接查询: SELECT * ORDER BY cost DESC
+        """,
+        "hard_rules": """
+        🟡 CTR连续7天下降>20% → "素材疲劳"
+        ❌ Cost>$50 且 Conv=0 → "低效素材"
+        """
+    },
+    "age": {
+        "title": "Age Demographics Analyst (年龄分层专家)",
+        "focus": "年龄维度效率分析。",
+        "data_source": "age 表 - 年龄段维度数据",
+        "extraction_method": """
+        直接查询: SELECT age, SUM(cost), SUM(conversions) GROUP BY age
+        """,
+        "hard_rules": """
+        ❌ Cost>2x CPA 且 Conv=0 且 14天+ → "建议排除"
+        🟡 Clicks<25 → "数据不足，继续观察"
+        """
+    },
+    "gender": {
+        "title": "Gender Demographics Analyst (性别分层专家)",
+        "focus": "性别维度效率分析。",
+        "data_source": "gender 表 - 性别维度数据",
+        "extraction_method": """
+        直接查询: SELECT gender, SUM(cost), SUM(conversions) GROUP BY gender
+        """,
+        "hard_rules": """
+        ❌ Cost>$100 且 Conv=0 → "建议降低出价"
+        🟡 Clicks<100 → "数据不足，继续观察"
+        """
+    },
+    "ad_schedule": {
+        "title": "Time & Schedule Analyst (分时专家)",
+        "focus": "分时段效率分析。",
+        "data_source": "ad_schedule 表 - 分时段数据",
+        "extraction_method": """
+        直接查询: SELECT day_and_time, SUM(cost), SUM(conversions) GROUP BY day_and_time
+        """,
+        "hard_rules": """
+        ❌ Cost>3x CPA 且 Conv=0 → "建议排除该时段"
+        🟡 00:00-05:00 → "注意延迟归因"
         """
     }
 }
+
 
 sub_llm = ChatOpenAI(
     model=SUB_MODEL_NAME,
@@ -210,6 +266,372 @@ def query_value(query: str, params: tuple = ()):
     if res:
         return list(res[0].values())[0]
     return 0
+
+# =============================================================================
+# HARD-CODED EXPERT ANALYSIS FUNCTIONS (硬规则分析)
+# These functions pre-calculate verdicts using Python instead of LLM interpretation
+# =============================================================================
+
+def analyze_pmax_channel_efficiency(campaign_name: str, start_date: str = None, end_date: str = None) -> Dict:
+    """
+    硬规则判定 PMax 渠道效率:
+    - Display Spend 占比 >35% 且 ROAS < 全账户均值50% → "PMax 吃低效流量"
+    - Video Spend >30% 且 CPA > 2.5x Target → "高风险"
+    - 返回预计算的判定结论
+    """
+    verdicts = []
+    evidence = {}
+    recommendations = []
+    
+    # Date filter
+    date_filter = ""
+    params = []
+    if start_date and end_date:
+        date_filter = "AND date >= ? AND date <= ?"
+        params = [start_date, end_date]
+    
+    # Get channel data for this campaign
+    channel_query = f"""
+        SELECT channels, SUM(cost) as total_cost, SUM(conversions) as total_conv,
+               SUM(conv_value) as total_value
+        FROM channel 
+        WHERE campaigns LIKE ? {date_filter}
+        GROUP BY channels
+    """
+    channel_data = query_db(channel_query, (f"%{campaign_name}%", *params))
+    
+    if not channel_data:
+        return {"verdicts": [], "evidence": {"note": "无渠道数据"}, "recommendations": []}
+    
+    # Calculate totals
+    total_spend = sum(c.get('total_cost', 0) or 0 for c in channel_data)
+    account_roas = 0
+    
+    # Get account average ROAS
+    account_stats = query_db(f"SELECT AVG(roas) as avg_roas FROM campaign WHERE date >= ? AND date <= ?", 
+                             (start_date or '2020-01-01', end_date or '2099-12-31'))
+    if account_stats and account_stats[0].get('avg_roas'):
+        account_roas = account_stats[0]['avg_roas']
+    
+    evidence['account_avg_roas'] = round(account_roas, 2)
+    evidence['total_spend'] = round(total_spend, 2)
+    evidence['channels'] = []
+    
+    for channel in channel_data:
+        ch_name = channel.get('channels', 'Unknown')
+        ch_cost = channel.get('total_cost', 0) or 0
+        ch_conv = channel.get('total_conv', 0) or 0
+        ch_value = channel.get('total_value', 0) or 0
+        
+        spend_share = (ch_cost / total_spend * 100) if total_spend > 0 else 0
+        ch_roas = (ch_value / ch_cost) if ch_cost > 0 else 0
+        ch_cpa = (ch_cost / ch_conv) if ch_conv > 0 else 0
+        
+        evidence['channels'].append({
+            'channel': ch_name,
+            'spend': round(ch_cost, 2),
+            'spend_share_pct': round(spend_share, 1),
+            'roas': round(ch_roas, 2),
+            'conversions': ch_conv
+        })
+        
+        # Rule 1: Display Spend >35% AND ROAS < Account Avg 50%
+        if 'display' in ch_name.lower():
+            if spend_share > 35 and ch_roas < (account_roas * 0.5):
+                verdicts.append({
+                    'verdict': '🔴 判定: PMax 吃低效流量 (Display)',
+                    'severity': 'CRITICAL',
+                    'rule': f'Display Spend占比 {spend_share:.1f}% > 35% 且 ROAS {ch_roas:.2f} < 账户均值50% ({account_roas*0.5:.2f})'
+                })
+                recommendations.append('建议: 在 PMax 中排除 Display 版位或降低素材展示频率')
+        
+        # Rule 2: Video Spend >30% AND CPA > 2.5x Target
+        if 'video' in ch_name.lower():
+            target_cpa = account_roas * 10 if account_roas > 0 else 20  # Estimate target CPA
+            if spend_share > 30 and ch_cpa > (target_cpa * 2.5):
+                verdicts.append({
+                    'verdict': '🟡 判定: Video 渠道高风险',
+                    'severity': 'WARNING',
+                    'rule': f'Video Spend占比 {spend_share:.1f}% > 30% 且 CPA ${ch_cpa:.2f} > 2.5x Target'
+                })
+                recommendations.append('建议: 检查 Video 素材质量，考虑降低 Video 预算分配')
+    
+    # Rule 3: Mark ROAS Bottom 20% channels
+    if len(evidence['channels']) > 1:
+        sorted_channels = sorted(evidence['channels'], key=lambda x: x['roas'])
+        bottom_20_count = max(1, len(sorted_channels) // 5)
+        bottom_channels = sorted_channels[:bottom_20_count]
+        for bc in bottom_channels:
+            if bc['spend'] > 10:  # Only flag if meaningful spend
+                verdicts.append({
+                    'verdict': f"⚠️ ROAS Bottom 20%: {bc['channel']}",
+                    'severity': 'INFO',
+                    'rule': f"ROAS {bc['roas']:.2f} 在所有渠道中排名最低"
+                })
+    
+    if not verdicts:
+        verdicts.append({'verdict': '✅ 渠道效率正常', 'severity': 'OK', 'rule': '未触发任何效率异常规则'})
+    
+    return {'verdicts': verdicts, 'evidence': evidence, 'recommendations': recommendations}
+
+
+def analyze_search_quality(campaign_name: str, start_date: str = None, end_date: str = None) -> Dict:
+    """
+    硬规则判定 Search 流量质量:
+    - Broad Match 占比 >40% 且 Broad CPA > 1.5x Exact CPA → "流量匹配质量下滑"
+    - 检测垃圾搜索词 (free, repair, support, login 等)
+    - 返回预计算的判定结论
+    """
+    verdicts = []
+    evidence = {}
+    recommendations = []
+    junk_terms = []
+    
+    # Junk term patterns
+    JUNK_PATTERNS = ['free', 'repair', 'support', 'login', 'manual', 'driver', 'download', 
+                     'firmware', 'reset', 'unlock', 'crack', 'hack', 'cheap', 'used', 'refurbished',
+                     'whatsapp', 'phone number', 'customer service', 'troubleshoot']
+    
+    date_filter = ""
+    params = []
+    if start_date and end_date:
+        date_filter = "AND date >= ? AND date <= ?"
+        params = [start_date, end_date]
+    
+    # Get search term data
+    search_query = f"""
+        SELECT search_term, match_type, SUM(cost) as total_cost, SUM(conversions) as total_conv,
+               SUM(impressions) as total_clicks
+        FROM search_term 
+        WHERE campaign LIKE ? {date_filter}
+        GROUP BY search_term, match_type
+    """
+    search_data = query_db(search_query, (f"%{campaign_name}%", *params))
+    
+    if not search_data:
+        return {"verdicts": [], "evidence": {"note": "无搜索词数据"}, "junk_terms": [], "recommendations": []}
+    
+    # Calculate match type stats
+    match_stats = {}
+    for row in search_data:
+        mt = (row.get('match_type') or 'Unknown').lower()
+        if mt not in match_stats:
+            match_stats[mt] = {'cost': 0, 'conv': 0, 'clicks': 0}
+        match_stats[mt]['cost'] += row.get('total_cost', 0) or 0
+        match_stats[mt]['conv'] += row.get('total_conv', 0) or 0
+        match_stats[mt]['clicks'] += row.get('total_clicks', 0) or 0
+    
+    total_cost = sum(m['cost'] for m in match_stats.values())
+    
+    # Calculate CPA per match type
+    for mt in match_stats:
+        match_stats[mt]['cpa'] = (match_stats[mt]['cost'] / match_stats[mt]['conv']) if match_stats[mt]['conv'] > 0 else 0
+        match_stats[mt]['spend_share'] = (match_stats[mt]['cost'] / total_cost * 100) if total_cost > 0 else 0
+    
+    evidence['match_type_stats'] = {k: {
+        'spend': round(v['cost'], 2),
+        'spend_share_pct': round(v['spend_share'], 1),
+        'conversions': v['conv'],
+        'cpa': round(v['cpa'], 2)
+    } for k, v in match_stats.items()}
+    
+    # Rule 1: Broad Match >40% spend AND Broad CPA > 1.5x Exact CPA
+    broad_stats = match_stats.get('broad', match_stats.get('broad match', {}))
+    exact_stats = match_stats.get('exact', match_stats.get('exact match', {}))
+    
+    if broad_stats and exact_stats:
+        broad_share = broad_stats.get('spend_share', 0)
+        broad_cpa = broad_stats.get('cpa', 0)
+        exact_cpa = exact_stats.get('cpa', 0)
+        
+        if broad_share > 40 and exact_cpa > 0 and broad_cpa > (exact_cpa * 1.5):
+            verdicts.append({
+                'verdict': '🔴 判定: 流量匹配质量下滑',
+                'severity': 'CRITICAL',
+                'rule': f'Broad Match占比 {broad_share:.1f}% > 40% 且 Broad CPA ${broad_cpa:.2f} > 1.5x Exact CPA ${exact_cpa:.2f}'
+            })
+            recommendations.append('建议: 将高消耗 Broad Match 关键词转为 Phrase 或 Exact Match')
+            recommendations.append('建议: 检查 Broad 带来的低质搜索词并添加为否定关键词')
+    
+    # Rule 2: Detect junk search terms
+    for row in search_data:
+        term = (row.get('search_term') or '').lower()
+        cost = row.get('total_cost', 0) or 0
+        conv = row.get('total_conv', 0) or 0
+        
+        for pattern in JUNK_PATTERNS:
+            if pattern in term and cost > 5:  # Only flag if spent > $5
+                junk_terms.append({
+                    'term': row.get('search_term'),
+                    'pattern_matched': pattern,
+                    'cost': round(cost, 2),
+                    'conversions': conv
+                })
+                break
+    
+    if junk_terms:
+        total_junk_cost = sum(j['cost'] for j in junk_terms)
+        verdicts.append({
+            'verdict': f'🟡 检测到 {len(junk_terms)} 个垃圾搜索词',
+            'severity': 'WARNING',
+            'rule': f'匹配到非购买意图关键词，浪费预算 ${total_junk_cost:.2f}'
+        })
+        recommendations.append(f'建议: 将以下搜索词添加为否定关键词: {", ".join([j["term"] for j in junk_terms[:5]])}')
+    
+    evidence['junk_terms_count'] = len(junk_terms)
+    evidence['junk_terms_cost'] = round(sum(j['cost'] for j in junk_terms), 2)
+    
+    if not verdicts:
+        verdicts.append({'verdict': '✅ 搜索流量质量正常', 'severity': 'OK', 'rule': '未触发任何流量质量异常规则'})
+    
+    return {'verdicts': verdicts, 'evidence': evidence, 'junk_terms': junk_terms[:10], 'recommendations': recommendations}
+
+
+def analyze_product_structure(campaign_name: str, start_date: str = None, end_date: str = None) -> Dict:
+    """
+    硬规则判定商品结构性问题:
+    - 低ROAS商品集中在低价SKU → "结构性毛利问题"
+    - 单品预算占比 >85% → "测试饥饿风险"
+    - 僵尸商品: Cost > $50 且 0 Conv
+    - 返回预计算的判定结论
+    """
+    verdicts = []
+    evidence = {}
+    recommendations = []
+    zombies = []
+    
+    date_filter = ""
+    params = []
+    if start_date and end_date:
+        date_filter = "AND date >= ? AND date <= ?"
+        params = [start_date, end_date]
+    
+    # Get product data
+    product_query = f"""
+        SELECT title, item_id, price, SUM(cost) as total_cost, SUM(clicks) as total_clicks,
+               SUM(impr) as total_impr
+        FROM product 
+        WHERE 1=1 {date_filter}
+        GROUP BY item_id
+        ORDER BY total_cost DESC
+    """
+    product_data = query_db(product_query, tuple(params))
+    
+    if not product_data:
+        return {"verdicts": [], "evidence": {"note": "无商品数据"}, "zombies": [], "recommendations": []}
+    
+    total_spend = sum(p.get('total_cost', 0) or 0 for p in product_data)
+    avg_price = sum(p.get('price', 0) or 0 for p in product_data) / len(product_data) if product_data else 0
+    
+    evidence['total_products'] = len(product_data)
+    evidence['total_spend'] = round(total_spend, 2)
+    evidence['avg_price'] = round(avg_price, 2)
+    
+    # Rule 1: Budget Hegemony - Single product >85% spend
+    if product_data and total_spend > 0:
+        top_product = product_data[0]
+        top_spend = top_product.get('total_cost', 0) or 0
+        top_share = (top_spend / total_spend * 100)
+        
+        if top_share > 85:
+            verdicts.append({
+                'verdict': f'🔴 判定: 测试饥饿风险',
+                'severity': 'CRITICAL',
+                'rule': f'单品 "{top_product.get("title", "")[:30]}..." 占预算 {top_share:.1f}% > 85%'
+            })
+            recommendations.append('建议: 均衡分配预算，让其他商品有机会获得展示')
+            evidence['hegemony_product'] = top_product.get('title', '')[:50]
+            evidence['hegemony_share'] = round(top_share, 1)
+    
+    # Rule 2: Zombie products - Cost > $50 AND 0 clicks (no conversion data available, use clicks as proxy)
+    for product in product_data:
+        cost = product.get('total_cost', 0) or 0
+        clicks = product.get('total_clicks', 0) or 0
+        
+        if cost > 50 and clicks == 0:
+            zombies.append({
+                'item_id': product.get('item_id'),
+                'title': (product.get('title') or '')[:40],
+                'cost': round(cost, 2),
+                'clicks': clicks
+            })
+    
+    if zombies:
+        total_zombie_cost = sum(z['cost'] for z in zombies)
+        verdicts.append({
+            'verdict': f'🟡 检测到 {len(zombies)} 个僵尸商品',
+            'severity': 'WARNING',
+            'rule': f'消耗 > $50 但 0 点击，浪费预算 ${total_zombie_cost:.2f}'
+        })
+        recommendations.append('建议: 在 Listing Group 中排除僵尸商品或暂停投放')
+    
+    evidence['zombie_count'] = len(zombies)
+    evidence['zombie_total_cost'] = round(sum(z['cost'] for z in zombies), 2)
+    
+    # Rule 3: Structural margin issue - Low ROAS products are low-price SKUs
+    # Sort by cost (high spenders) and check if low-price
+    high_spend_products = [p for p in product_data if (p.get('total_cost', 0) or 0) > 20]
+    low_price_high_spend = [p for p in high_spend_products if (p.get('price', 0) or 0) < avg_price * 0.5]
+    
+    if len(low_price_high_spend) > len(high_spend_products) * 0.5 and len(high_spend_products) > 3:
+        verdicts.append({
+            'verdict': '🟡 判定: 结构性毛利问题',
+            'severity': 'WARNING',
+            'rule': f'高消耗商品中 {len(low_price_high_spend)}/{len(high_spend_products)} 个是低价SKU (< 均价50%)'
+        })
+        recommendations.append('建议: 检查低价SKU的毛利率，考虑调整商品优先级或排除低毛利商品')
+        evidence['low_price_high_spend_ratio'] = f"{len(low_price_high_spend)}/{len(high_spend_products)}"
+    
+    if not verdicts:
+        verdicts.append({'verdict': '✅ 商品结构正常', 'severity': 'OK', 'rule': '未触发任何结构性问题规则'})
+    
+    return {'verdicts': verdicts, 'evidence': evidence, 'zombies': zombies[:10], 'recommendations': recommendations}
+
+
+def calculate_time_comparison(table_name: str, campaign_name: str, metric: str, window_days: int = 7) -> Dict:
+    """
+    计算时间窗口对比: 当前N天 vs 前N天
+    返回: {current: x, previous: y, change_pct: z, verdict: "..."}
+    """
+    from datetime import datetime, timedelta
+    
+    today = datetime.now().date()
+    current_end = today
+    current_start = today - timedelta(days=window_days)
+    previous_end = current_start - timedelta(days=1)
+    previous_start = previous_end - timedelta(days=window_days)
+    
+    # Query current period
+    current_query = f"""
+        SELECT SUM({metric}) as total FROM {table_name}
+        WHERE campaign LIKE ? AND date >= ? AND date <= ?
+    """
+    current_val = query_value(current_query, (f"%{campaign_name}%", str(current_start), str(current_end))) or 0
+    
+    # Query previous period
+    previous_val = query_value(current_query, (f"%{campaign_name}%", str(previous_start), str(previous_end))) or 0
+    
+    # Calculate change
+    if previous_val > 0:
+        change_pct = ((current_val - previous_val) / previous_val) * 100
+    else:
+        change_pct = 100 if current_val > 0 else 0
+    
+    # Generate verdict
+    verdict = "持平"
+    if change_pct > 10:
+        verdict = f"📈 上升 {change_pct:.1f}%"
+    elif change_pct < -10:
+        verdict = f"📉 下降 {abs(change_pct):.1f}%"
+    
+    return {
+        'metric': metric,
+        'window': f'{window_days}d vs 前{window_days}d',
+        'current': round(current_val, 2),
+        'previous': round(previous_val, 2),
+        'change_pct': round(change_pct, 1),
+        'verdict': verdict
+    }
 
 def safe_truncate_data(data_list: List[Dict], max_chars: int) -> str:
     """
@@ -249,6 +671,21 @@ def analyze_specific_table(campaign_name: str, table_name: str, start_date: str 
     Calls a specialized sub-agent to analyze a specific table for a campaign within a date range.
     Input: campaign_name (exact name), table_name (e.g., 'age', 'search_term'), start_date (YYYY-MM-DD), end_date (YYYY-MM-DD).
     """
+    # 表名大小写规范化 - 处理AI可能使用的大写表名
+    TABLE_NAME_MAP = {
+        'Products': 'product',
+        'Campaigns': 'campaign', 
+        'Channel': 'channel',
+        'Search_term': 'search_term',
+        'Age': 'age',
+        'Gender': 'gender',
+        'Location': 'location',
+        'Audience': 'audience',
+        'Asset': 'asset',
+        'Ad_schedule': 'ad_schedule',
+    }
+    table_name = TABLE_NAME_MAP.get(table_name, table_name)
+    
     # Strict validation: Only allow analysis if it matches expert knowledge
     if table_name not in TABLE_EXPERT_KNOWLEDGE:
         return f"Error: No expert knowledge defined for table '{table_name}'. You cannot analyze this table yet."
@@ -265,6 +702,7 @@ def analyze_specific_table(campaign_name: str, table_name: str, start_date: str 
         campaign_col = 'campaigns'
     elif table_name == 'product':
         campaign_col = '1' # Special case: product table lacks campaign pivot, disable filter
+
 
     # 2. Fetch Targeted Table Data with Date Filter
     where_conditions = []
@@ -316,10 +754,10 @@ def analyze_specific_table(campaign_name: str, table_name: str, start_date: str 
 
     # 5. 纯 LLM 分析 - 提示词即规则
     prompt = f"""
-    你是专业的 Google Ads 优化专家，专注于: {expert['title']}。
+    你是专业的 Google Ads 优化专家，专注于: {expert.get('title', f'{table_name} 分析专家')}。
     
-    **分析目标**: {expert['focus']}
-    **指标说明**: {expert['metrics_desc']}
+    **分析目标**: {expert.get('focus', '数据效率分析')}
+    **指标说明**: {expert.get('metrics_desc', '请根据数据列自行判断指标含义')}
     
     ---
     ## ⚠️ 重要：你必须严格按照以下规则进行分析
@@ -359,6 +797,10 @@ def scan_campaigns_for_anomalies(target_date: str = None) -> str:
     # 1. Main Agent Trigger
     anomalies = get_campaign_anomalies_logic(target_date) 
     
+    print(f"🔍 Scan found {len(anomalies)} anomaly campaigns for date: {target_date}")
+    for a in anomalies:
+        print(f"   - {a.get('campaign', 'Unknown')}: {a.get('reason', 'No reason')}")
+    
     if not anomalies:
          return "✅ 效率巡检通过：没有广告系列触发 3 天 ROAS/CPA 预警。"
 
@@ -379,8 +821,14 @@ def scan_campaigns_for_anomalies(target_date: str = None) -> str:
         expert = TABLE_EXPERT_KNOWLEDGE.get("Anomalies", {})
         analysis_rules = expert.get("expert_rules", "")
 
-    # 准备数据给 LLM
+    # 🚨 添加强制性摘要头部 - 确保AI无法忽略任何异常
     report = []
+    report.append(f"## 🚨 全账户异常扫描结果")
+    report.append(f"**扫描发现 {len(anomalies)} 个异常广告系列，以下每个都必须在最终报告中涵盖：**\n")
+    for i, a in enumerate(anomalies, 1):
+        report.append(f"{i}. **{a.get('campaign', 'Unknown')}** - {a.get('reason', 'Efficiency Issue')}")
+    report.append("\n---\n")
+    report.append("## 各系列详细诊断\n")
     for a in anomalies:
         campaign_name = a.get('campaign', 'Unknown')
         campaign_type = a.get('campaign_type', 'Unknown')
@@ -389,28 +837,43 @@ def scan_campaigns_for_anomalies(target_date: str = None) -> str:
         related_data = {}
         
         # 搜索词数据
-        st_data = query_db("SELECT * FROM search_term WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 10", (campaign_name,))
+        st_data = query_db("SELECT * FROM search_term WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 15", (campaign_name,))
         if st_data:
             related_data['search_term'] = st_data
         
         # 渠道数据 (PMax)
-        ch_data = query_db("SELECT * FROM channel WHERE campaigns LIKE ? ORDER BY CAST(cost AS REAL) DESC LIMIT 10", (f"%{campaign_name}%",))
+        ch_data = query_db("SELECT * FROM channel WHERE campaigns LIKE ? ORDER BY CAST(cost AS REAL) DESC LIMIT 15", (f"%{campaign_name}%",))
         if ch_data:
             related_data['channel'] = ch_data
         
         # 商品数据
-        pr_data = query_db("SELECT * FROM product ORDER BY CAST(cost AS REAL) DESC LIMIT 10")
+        pr_data = query_db("SELECT * FROM product ORDER BY CAST(cost AS REAL) DESC LIMIT 15")
         if pr_data:
             related_data['product'] = pr_data
         
         # 地域数据
-        geo_data = query_db("SELECT * FROM location_by_cities_all_campaign WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 10", (campaign_name,))
+        geo_data = query_db("SELECT * FROM location WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 15", (campaign_name,))
         if geo_data:
             related_data['geo'] = geo_data
+        
+        # 年龄数据
+        age_data = query_db("SELECT * FROM age WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 10", (campaign_name,))
+        if age_data:
+            related_data['age'] = age_data
+        
+        # 时段数据
+        schedule_data = query_db("SELECT * FROM ad_schedule WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 10", (campaign_name,))
+        if schedule_data:
+            related_data['ad_schedule'] = schedule_data
+        
+        # 调试日志
+        print(f"📊 Collected data for {campaign_name}:")
+        for key, val in related_data.items():
+            print(f"   - {key}: {len(val)} rows")
 
-        # 纯 LLM 分析
+        # 纯 LLM 分析 - 加强详细输出要求
         prompt = f"""
-        你是 Google Ads 全账户巡检专家。请严格按照以下规则分析异常广告系列。
+        你是 Google Ads 全账户巡检专家。请提供**非常详细**的分析报告。
         
         ---
         ## ⚠️ 必须遵守的分析规则
@@ -424,18 +887,24 @@ def scan_campaigns_for_anomalies(target_date: str = None) -> str:
         **系列类型**: {campaign_type}
         **异常数据**: {json.dumps(a, ensure_ascii=False)}
         
-        ## 相关维度数据
+        ## 相关维度数据 (请基于以下数据做详细分析)
         
-        {json.dumps(related_data, ensure_ascii=False, indent=2)[:8000]}
+        {json.dumps(related_data, ensure_ascii=False, indent=2)[:12000]}
         
         ---
-        ## 输出要求
+        ## 🚨 输出要求 (必须遵守)
         
-        1. **根本原因分析**: 判断效率下降的根本原因（流量质量、结构问题、市场变化）
-        2. **严格执行规则**: 按照上述规则中的阈值进行判断
-        3. **具体行动建议**: 给出可立即执行的优化建议
-        4. **置信度标注**: 标注分析的置信度 [高|中|低]
-        5. 输出格式：简洁 Markdown，中文
+        你必须输出详细的诊断报告，格式如下：
+        
+        1. **效率概览**: 用具体数字说明ROAS/CPA的变化幅度
+        2. **搜索词分析**: 如果有search_term数据，列出消耗Top 5的词及其CTR/转化
+        3. **渠道分析**: 如果有channel数据，列出各渠道消耗占比
+        4. **人群画像**: 如果有age数据，列出年龄段分布
+        5. **时段分析**: 如果有schedule数据，列出高消耗时段
+        6. **根本原因**: 综合判断效率下降的根本原因
+        7. **行动建议**: 给出3-5条具体可执行的优化建议
+        
+        **重要**: 即使数据不完整，也要基于现有数据给出尽可能详细的分析。不要给出"无数据"的简单回复。
         """
         
         llm_analysis = sub_llm.invoke(prompt).content
@@ -447,130 +916,83 @@ def scan_campaigns_for_anomalies(target_date: str = None) -> str:
 def call_pmax_agent(campaign_name: str, issues: List[str], start_date: str = None, end_date: str = None) -> str:
     """
     Calls the PMax Sub-Agent to analyze a specific Performance Max campaign within a date range.
-    Performs deep dive into Channels, Products, Locations, and Search Terms.
+    Uses HARD-CODED expert rules for pre-calculated verdicts.
     """
     report = [f"### 🕵️ PMax Deep Dive: {campaign_name}"]
     report.append(f"**Trigger Issues**: {', '.join(issues)}\n")
 
-    # A. Channel Analysis (Calculated Metrics)
+    # =========================================================================
+    # A. Channel Analysis - USING HARD-CODED EXPERT RULES
+    # =========================================================================
     try:
-        # Fetch raw metrics with date filter
-        where_conditions = ["campaigns LIKE ?", "status = 'active'"]
-        params = [f"%{campaign_name}%"]
-        if start_date:
-            where_conditions.append("date >= ?")
-            params.append(start_date)
-        if end_date:
-            where_conditions.append("date <= ?")
-            params.append(end_date)
-
-        where_clause = " AND ".join(where_conditions)
-        channels_data = query_db(
-            f"""
-            SELECT channels, status, cost, conversions, conv_value, clicks
-            FROM channel 
-            WHERE {where_clause}
-            ORDER BY CAST(cost AS REAL) DESC
-            """, 
-            tuple(params)
-        )
+        channel_analysis = analyze_pmax_channel_efficiency(campaign_name, start_date, end_date)
         
-        total_pmax_cost = sum([float(c.get('cost', 0) or 0) for c in channels_data])
+        report.append("#### 📡 A. Channel Efficiency Analysis (硬规则判定)")
         
-        if channels_data:
-            report.append("#### 📡 A. Channel Analysis (Data Source: channel table)")
-            
-            # --- PMax Traffic Washing Logic ---
-            display_spend = 0
-            display_roas = 0
-            video_spend = 0
-            
-            for c in channels_data:
-                channel_name = c.get('channels', 'Unknown')
-                cost = float(c.get('cost', 0) or 0)
-                val = float(c.get('conv_value', 0) or 0)
-                
-                if 'Display' in channel_name:
-                    display_spend += cost
-                    display_roas = (val / cost) if cost > 0 else 0
-                if 'Video' in channel_name:
-                    video_spend += cost
-            
-            display_share = (display_spend / total_pmax_cost * 100) if total_pmax_cost > 0 else 0
-            
-            # Logic 1: Display Waste Check
-            if display_share > 35 and display_roas < 1.0:
-                 report.append(f"⚠️ **PMax 流量洗样判定 (Traffic Washing Detected)**")
-                 report.append(f"   - **现象**: Display Channel is consuming {display_share:.1f}% of budget with low ROAS ({display_roas:.2f}).")
-                 report.append("   - **专家经验**: 若 Display 消耗占比 > 35% 且其 ROAS < 全账户均值 50%，判定为 PMax 正在吞噬低质流量 (PMax is dumping budget into cheap inventory).")
-                 report.append("   - **建议**: Consider tightening audience signals or excluding placements.")
-            
-            # Logic 2: Cross-Channel Check
-            for c in channels_data:
-                channel_name = c.get('channels', 'Unknown')
-                cost = float(c.get('cost', 0) or 0)
-                val = float(c.get('conv_value', 0) or 0)
-                roas = (val / cost) if cost > 0 else 0.0
-                
-                metrics_str = f"Cost: ${cost:.2f} | ROAS: {roas:.2f}"
-                report.append(f"- **{channel_name}**: {metrics_str}")
-
-            report.append("")
-        else:
-            report.append("ℹ️ No active channel data found for this campaign.")
-            report.append("")
-
+        # Display verdicts
+        for v in channel_analysis.get('verdicts', []):
+            verdict = v.get('verdict', '')
+            rule = v.get('rule', '')
+            report.append(f"**{verdict}**")
+            if rule:
+                report.append(f"   - 规则: {rule}")
+        
+        # Display evidence
+        evidence = channel_analysis.get('evidence', {})
+        if evidence.get('channels'):
+            report.append("\n**渠道数据:**")
+            for ch in evidence['channels']:
+                report.append(f"- **{ch['channel']}**: Spend ${ch['spend']:.2f} ({ch['spend_share_pct']:.1f}%) | ROAS {ch['roas']:.2f} | Conv {ch['conversions']}")
+        
+        # Display recommendations
+        for rec in channel_analysis.get('recommendations', []):
+            report.append(f"👉 {rec}")
+        
+        report.append("")
     except Exception as e:
         report.append(f"Error in Channel Analysis: {e}")
 
-    # B. Product Analysis (The "Shelf")
-    # Logic: Structural Profitability Check
+    # =========================================================================
+    # B. Product Structure Analysis - USING HARD-CODED EXPERT RULES
+    # =========================================================================
     try:
-        products = query_db("SELECT title, item_id, cost, conversions, conv_value_cost FROM product ORDER BY CAST(cost AS REAL) DESC LIMIT 10")
-        zombies = []
-        inefficient = []
+        product_analysis = analyze_product_structure(campaign_name, start_date, end_date)
         
-        for p in products:
-            cost = float(p.get('cost', 0))
-            conv = float(p.get('conversions', 0))
-            roas = float(p.get('conv_value_cost', 0)) if p.get('conv_value_cost') else 0
-            item_id = p.get('item_id', 'N/A')
-            title = p.get('title', 'Unknown')
-            
-            # Cold Start Protection (Simulated): If cost < 30, ignore unless 0 conv for long time (not checked here)
-            if cost > 30: 
-                if cost > 50 and conv == 0:
-                    zombies.append(f"{title} (ID: {item_id}) - Cost ${cost:.2f}, 0 Conv")
-                elif cost > 20 and roas < 0.5:
-                    inefficient.append(f"{title} (ID: {item_id}) - ROAS {roas:.2f}")
-
-        report.append("#### 📦 B. Product Analysis (Source: product table)")
+        report.append("#### 📦 B. Product Structure Analysis (硬规则判定)")
         
+        # Display verdicts
+        for v in product_analysis.get('verdicts', []):
+            verdict = v.get('verdict', '')
+            rule = v.get('rule', '')
+            report.append(f"**{verdict}**")
+            if rule:
+                report.append(f"   - 规则: {rule}")
+        
+        # Display zombies
+        zombies = product_analysis.get('zombies', [])
         if zombies:
-            report.append("❌ **Zombie Products (High Cost, 0 Conv)**:")
-            for z in zombies: report.append(f"  - {z}")
-        if inefficient:
-            report.append("⚠️ **结构性损耗判定 (Structural Profit Issue)**:")
-            for i in inefficient: report.append(f"  - {i}")
-            report.append("   - **专家经验**: 若低 ROAS 商品集中在低毛利 SKU，判定为 结构性毛利问题而非单纯流量问题 (Structural margin issue, not just traffic).")
-            report.append("   - **注意**: Unless these are high-margin (>80%) traffic drivers, they are bleeding profit.")
+            report.append("\n**僵尸商品列表:**")
+            for z in zombies[:5]:
+                report.append(f"- {z['title']} (ID: {z['item_id']}) - Cost ${z['cost']:.2f}, Clicks {z['clicks']}")
         
-        if not zombies and not inefficient:
-             report.append("✅ Top spending products are performing within acceptable range.")
+        # Display recommendations
+        for rec in product_analysis.get('recommendations', []):
+            report.append(f"👉 {rec}")
         
         report.append("")
-
     except Exception as e:
         report.append(f"Error in Product Analysis: {e}")
 
-    # C. Location Analysis
+    # =========================================================================
+    # C. Location Analysis (Keep existing logic - straightforward)
+    # =========================================================================
     try:
-        locs = query_db("SELECT matched_location, cost, conversions FROM location_by_cities_all_campaign WHERE campaign = ? AND CAST(cost AS REAL) > 50 AND CAST(conversions AS REAL) = 0 ORDER BY CAST(cost AS REAL) DESC LIMIT 3", (campaign_name,))
+        locs = query_db("SELECT location_name, cost, conversions FROM location WHERE campaign = ? AND CAST(cost AS REAL) > 50 AND CAST(conversions AS REAL) = 0 ORDER BY CAST(cost AS REAL) DESC LIMIT 3", (campaign_name,))
         report.append("#### 🌍 C. Location Analysis")
         if locs:
             report.append("❌ **Money Wasting Locations**:")
             for l in locs:
-                report.append(f"- **{l.get('matched_location')}**: Cost ${l.get('cost')}, 0 Conv")
+                report.append(f"- **{l.get('location_name', l.get('location', 'Unknown'))}**: Cost ${l.get('cost')}, 0 Conv")
             report.append("👉 **Action**: Exclude these locations in Campaign Settings.")
         else:
             report.append("✅ No high-spend zero-conversion locations found.")
@@ -578,28 +1000,48 @@ def call_pmax_agent(campaign_name: str, issues: List[str], start_date: str = Non
     except Exception as e:
         report.append(f"Error in Location Analysis: {e}")
 
-    # D. Search Term Analysis (PMax Search Terms)
+    # =========================================================================
+    # D. Search Term Analysis - USING HARD-CODED EXPERT RULES
+    # =========================================================================
     try:
-        bad_keywords = ['free', 'repair', 'login', 'support', 'manual', 'review']
-        terms = query_db("SELECT search_term, cost, conversions FROM search_term WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 20", (campaign_name,))
+        search_analysis = analyze_search_quality(campaign_name, start_date, end_date)
         
-        found_bad_terms = []
-        for t in terms:
-            term = t.get('search_term', '').lower()
-            cost = float(t.get('cost', 0))
-            if any(bk in term for bk in bad_keywords):
-                found_bad_terms.append(f"'{term}' (Cost ${cost})")
+        report.append("#### 🔍 D. Search Term Quality Analysis (硬规则判定)")
         
-        report.append("#### 🔍 D. Search Term Analysis")
-        if found_bad_terms:
-            report.append("⚠️ **Irrelevant Search Terms Detected**:")
-            for ft in found_bad_terms: report.append(f"- {ft}")
-            report.append("👉 **Action**: Add these as Account-Level Negative Keywords.")
-        else:
-            report.append("✅ No obvious junk keywords found in top spenders.")
+        # Display verdicts
+        for v in search_analysis.get('verdicts', []):
+            verdict = v.get('verdict', '')
+            rule = v.get('rule', '')
+            report.append(f"**{verdict}**")
+            if rule:
+                report.append(f"   - 规则: {rule}")
+        
+        # Display junk terms
+        junk_terms = search_analysis.get('junk_terms', [])
+        if junk_terms:
+            report.append("\n**垃圾搜索词列表:**")
+            for jt in junk_terms[:5]:
+                report.append(f"- '{jt['term']}' (Cost ${jt['cost']:.2f}) - 匹配模式: {jt['pattern_matched']}")
+        
+        # Display recommendations
+        for rec in search_analysis.get('recommendations', []):
+            report.append(f"👉 {rec}")
             
     except Exception as e:
         report.append(f"Error in Search Term Analysis: {e}")
+
+    # =========================================================================
+    # E. Time Comparison (7d vs 前7d)
+    # =========================================================================
+    try:
+        report.append("\n#### 📊 E. Time Window Comparison (时间窗口对比)")
+        
+        for metric in ['cost', 'conversions', 'conv_value']:
+            comparison = calculate_time_comparison('campaign', campaign_name, metric, 7)
+            report.append(f"- **{metric.upper()}**: {comparison['current']} vs {comparison['previous']} ({comparison['verdict']})")
+        
+    except Exception as e:
+        report.append(f"Error in Time Comparison: {e}")
 
     return "\n".join(report)
 
@@ -607,84 +1049,98 @@ def call_pmax_agent(campaign_name: str, issues: List[str], start_date: str = Non
 def call_search_agent(campaign_name: str, issues: List[str], start_date: str = None, end_date: str = None) -> str:
     """
     Calls the Search Sub-Agent to analyze a specific Search campaign within a date range.
-    Uses the flash model to deeper analyze Search Terms, Match Types, Audiences.
+    Uses HARD-CODED expert rules for pre-calculated verdicts.
     """
-    data_context = []
-    data_context.append(f"Campaign: {campaign_name}")
-    data_context.append(f"Trigger Issues: {', '.join(issues)}")
+    report = [f"### 🔍 Search Campaign Deep Dive: {campaign_name}"]
+    report.append(f"**Trigger Issues**: {', '.join(issues)}\n")
 
-    # A. Search Terms
+    # =========================================================================
+    # A. Search Quality Analysis - USING HARD-CODED EXPERT RULES
+    # =========================================================================
     try:
-        where_conditions = ["campaign = ?"]
-        params = [campaign_name]
-        if start_date:
-            where_conditions.append("date >= ?")
-            params.append(start_date)
-        if end_date:
-            where_conditions.append("date <= ?")
-            params.append(end_date)
+        search_analysis = analyze_search_quality(campaign_name, start_date, end_date)
         
-        where_clause = " AND ".join(where_conditions)
-        terms = query_db(f"SELECT search_term, match_type, cost, conversions, conv_value_cost FROM search_term WHERE {where_clause} ORDER BY CAST(cost AS REAL) DESC LIMIT 20", tuple(params))
-        data_context.append(f"\n[Search Terms (Top 20 Impact)]: {json.dumps([dict(r) for r in terms], ensure_ascii=False)}")
-    except: pass
+        report.append("#### 📊 A. Search Quality Analysis (硬规则判定)")
+        
+        # Display verdicts
+        for v in search_analysis.get('verdicts', []):
+            verdict = v.get('verdict', '')
+            rule = v.get('rule', '')
+            report.append(f"**{verdict}**")
+            if rule:
+                report.append(f"   - 规则: {rule}")
+        
+        # Display match type stats
+        evidence = search_analysis.get('evidence', {})
+        match_stats = evidence.get('match_type_stats', {})
+        if match_stats:
+            report.append("\n**匹配类型效能:**")
+            for mt, stats in match_stats.items():
+                report.append(f"- **{mt.upper()}**: Spend ${stats['spend']:.2f} ({stats['spend_share_pct']:.1f}%) | CPA ${stats['cpa']:.2f} | Conv {stats['conversions']}")
+        
+        # Display junk terms
+        junk_terms = search_analysis.get('junk_terms', [])
+        if junk_terms:
+            report.append("\n**垃圾搜索词列表:**")
+            for jt in junk_terms[:5]:
+                report.append(f"- '{jt['term']}' (Cost ${jt['cost']:.2f}) - 匹配模式: {jt['pattern_matched']}")
+        
+        # Display recommendations
+        for rec in search_analysis.get('recommendations', []):
+            report.append(f"👉 {rec}")
+        
+        report.append("")
+    except Exception as e:
+        report.append(f"Error in Search Quality Analysis: {e}")
 
-    # B. Match Types (Broad vs Exact Logic)
+    # =========================================================================
+    # B. Audience Analysis (optional - table may not exist)
+    # =========================================================================
     try:
-        match_stats = query_db("""
-            SELECT match_type, SUM(CAST(cost AS REAL)) as total_cost, SUM(CAST(conversions AS REAL)) as total_conv, SUM(CAST(conv_value AS REAL)) as total_value
-            FROM search_term WHERE campaign = ? GROUP BY match_type ORDER BY total_cost DESC
-        """, (campaign_name,))
+        # Try to query audience data - table may not exist in all databases
+        audiences = query_db("SELECT * FROM age WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 10", (campaign_name,))
         
-        # Calculate CVR for Flash to use
-        enhanced_stats = []
-        for ms in match_stats:
-            d = dict(ms)
-            cost = d['total_cost'] or 0
-            conv = d['total_conv'] or 0
-            # Rough CVR estimation requires clicks, but we assume low CVR if High Cost Low Conv
-            d['cpa'] = cost / conv if conv > 0 else 0
-            enhanced_stats.append(d)
+        report.append("#### 👥 B. Age Demographics Analysis")
+        
+        if audiences:
+            waste_audiences = []
+            for a in audiences:
+                cost = float(a.get('cost', 0) or 0)
+                conv = float(a.get('conversions', 0) or 0)
+                if cost > 50 and conv == 0:
+                    waste_audiences.append({
+                        'segment': a.get('age', 'Unknown'),
+                        'cost': cost
+                    })
             
-        data_context.append(f"\n[Match Type Stats]: {json.dumps(enhanced_stats, ensure_ascii=False)}")
-    except: pass
+            if waste_audiences:
+                report.append("❌ **高消耗零转化年龄段:**")
+                for wa in waste_audiences[:5]:
+                    report.append(f"- {wa['segment']} - Cost ${wa['cost']:.2f}, 0 Conv")
+                report.append("👉 **建议**: 考虑降低这些年龄段的出价")
+            else:
+                report.append("✅ 未发现高消耗零转化的年龄段")
+        else:
+            report.append("ℹ️ 无年龄段数据")
+        
+        report.append("")
+    except Exception as e:
+        report.append(f"ℹ️ 年龄段分析跳过: 数据不可用")
 
-    # C. Audiences
+    # =========================================================================
+    # C. Time Comparison (7d vs 前7d)
+    # =========================================================================
     try:
-        audiences = query_db("SELECT audience_segment, cost, conversions, conv_value_cost FROM audience WHERE campaign = ? ORDER BY CAST(cost AS REAL) DESC LIMIT 10", (campaign_name,))
-        data_context.append(f"\n[Audience Data]: {json.dumps([dict(r) for r in audiences], ensure_ascii=False)}")
-    except: pass
+        report.append("#### 📈 C. Time Window Comparison (时间窗口对比)")
+        
+        for metric in ['cost', 'conversions']:
+            comparison = calculate_time_comparison('campaign', campaign_name, metric, 7)
+            report.append(f"- **{metric.upper()}**: {comparison['current']} vs {comparison['previous']} ({comparison['verdict']})")
+        
+    except Exception as e:
+        report.append(f"Error in Time Comparison: {e}")
 
-    # Invoke Sub-Agent LLM
-    prompt = f"""
-    You are a specialized Search Ads Analysis Agent. Analyze the provided data for Search Campaign '{campaign_name}' and produce a concise report in Chinese.
-
-    **Data Context:**
-    {chr(10).join(data_context)}
-
-    **Analysis Logic (Strictly apply Expert Experience):**
-    1. **搜索流量质量判定 (Search Quality)**: 
-       - If 'Broad' match type has > 40% spend share AND its CPA is > 1.5x of 'Exact' match, VERDICT: "判定为 流量匹配质量下滑 (Match Quality Degradation)".
-       - Logic: "若广泛匹配占比提升且 Search Term CVR 同期下降，判定为 流量匹配质量下滑".
-    2. **Search Terms**: Identify irrelevant junk terms (negative opportunities).
-    3. **Audience**: Identify high-spend (> $50) audiences with 0 conversions.
-
-    **Output Format (Markdown):**
-    ### 🔍 Search Campaign Deep Dive: {campaign_name}
-    #### 1. 核心发现 (Core Findings)
-    - **专家判定**: (Cite the Expert Verdict if applicable, e.g. "流量匹配质量下滑")
-    - **Evidence**: (Data backing the verdict)
-    
-    #### 2. 详细分析 (Analysis)
-    - **匹配类型效能**: (Compare Broad vs Exact/Phrase)
-    - **搜索词**: ...
-    
-    #### 3. 优化建议 (Actions)
-    - [ ] Action 1
-    """
-
-    msg = sub_llm.invoke(prompt)
-    return msg.content
+    return "\n".join(report)
 
 
 # --- LangGraph Setup ---
@@ -881,12 +1337,22 @@ def get_campaign_anomalies_logic(target_date: str = None):
 def get_product_anomalies_logic(target_date: str = None):
     """
     Identify anomalous products for a specific date (defaults to latest in DB).
-    Similar logic to campaign anomalies but adapted for product metrics.
+    
+    Logic aligned with Campaign Monitor but adapted for Product table columns:
+    - Product table has: date, title, item_id, clicks, impr, ctr, avg_cpc, cost
+    - Product table LACKS: conversions, ROAS
+    
+    So we use:
+    - CTR instead of ROAS (efficiency metric)
+    - CPC instead of CPA (cost efficiency metric)  
+    - Clicks instead of Conversions (volume metric)
     
     Detection criteria:
-    1. High cost with low/no clicks (Zombie Products)
-    2. CTR declining trend (3-day consecutive decline)
-    3. Cost efficiency degradation
+    1. Efficiency Check (3 consecutive days):
+       - CTR < 80% of 7-day avg
+       - OR CPC > 125% of 7-day avg
+    2. Growth Check:
+       - No click growth (Current 3 days vs Previous 7 days)
     """
     conn = get_db_connection()
     try:
@@ -899,11 +1365,11 @@ def get_product_anomalies_logic(target_date: str = None):
             if not target_date:
                 return []
         
-        # 2. Fetch raw data (Last 14 days relative to target_date)
+        # 2. Fetch raw data (Last 45 days relative to target_date)
         query = """
             SELECT date, title, item_id, cost, clicks, impr, ctr, avg_cpc
             FROM product 
-            WHERE date <= ? AND date >= date(?, '-14 days')
+            WHERE date <= ? AND date >= date(?, '-45 days')
             ORDER BY item_id, date ASC
         """
         df = pd.read_sql_query(query, conn, params=(target_date, target_date))
@@ -918,80 +1384,140 @@ def get_product_anomalies_logic(target_date: str = None):
         df['clicks'] = pd.to_numeric(df['clicks'], errors='coerce').fillna(0)
         df['impr'] = pd.to_numeric(df['impr'], errors='coerce').fillna(0)
         df['ctr'] = pd.to_numeric(df['ctr'].astype(str).str.replace('%', ''), errors='coerce').fillna(0)
+        df['avg_cpc'] = pd.to_numeric(df['avg_cpc'].astype(str).str.replace('$', '').str.replace(',', ''), errors='coerce').fillna(0)
 
         anomalies = []
         
         # Group by product (item_id)
         for item_id, group in df.groupby('item_id'):
             group = group.sort_values('date')
-            if len(group) < 3:
+            if len(group) < 10:
                 continue
 
             title = group['title'].iloc[-1] if 'title' in group.columns else 'Unknown Product'
             last_date = target_dt
             
-            # Get last 3 days data
-            last_3_days = group[group['date'] >= (last_date - pd.Timedelta(days=2))]
-            if last_3_days.empty:
-                continue
+            # Check 3 days: T, T-1, T-2
+            check_dates = [last_date - pd.Timedelta(days=i) for i in range(3)] 
+            
+            # Check Condition A: Efficiency for EACH of the last 3 days
+            # Using CTR instead of ROAS, CPC instead of CPA
+            is_efficiency_bad = True
+            
+            for d in check_dates:
+                # Specific day row
+                day_row = group[group['date'] == d]
+                if day_row.empty:
+                    is_efficiency_bad = False; break
                 
-            # Get previous 7 days for comparison
-            prev_7_days = group[(group['date'] >= (last_date - pd.Timedelta(days=9))) & 
-                                (group['date'] <= (last_date - pd.Timedelta(days=3)))]
+                current_ctr = day_row['ctr'].values[0]
+                current_cpc = day_row['avg_cpc'].values[0]
+
+                # History: 7 days prior to 'd' -> [d-7, d-1]
+                start_hist = d - pd.Timedelta(days=7)
+                end_hist = d - pd.Timedelta(days=1)
+                
+                hist_rows = group[(group['date'] >= start_hist) & (group['date'] <= end_hist)]
+                if hist_rows.empty:
+                    is_efficiency_bad = False; break
+                    
+                avg_ctr = hist_rows['ctr'].mean()
+                avg_cpc = hist_rows['avg_cpc'].mean()
+                
+                # Criteria (same thresholds as Campaign: 80% / 125%)
+                ctr_bad = (avg_ctr > 0) and (current_ctr < avg_ctr * 0.8)
+                cpc_bad = (avg_cpc > 0) and (current_cpc > avg_cpc * 1.25)
+                
+                if not (ctr_bad or cpc_bad):
+                    is_efficiency_bad = False
+                    break
             
-            # Current period metrics
-            curr_cost = last_3_days['cost'].sum()
-            curr_clicks = last_3_days['clicks'].sum()
-            curr_ctr = last_3_days['ctr'].mean()
+            if not is_efficiency_bad:
+                continue
+
+            # Check Condition B: No Growth (using clicks instead of conversions)
+            # Current Period: [T-2, T]
+            # Week-over-week Previous Period: [T-9, T-7]
+            current_start = last_date - pd.Timedelta(days=2)
+            prev_end = last_date - pd.Timedelta(days=7)
+            prev_start = prev_end - pd.Timedelta(days=2)
             
-            # Previous period metrics  
-            prev_cost = prev_7_days['cost'].sum() if not prev_7_days.empty else 0
-            prev_clicks = prev_7_days['clicks'].sum() if not prev_7_days.empty else 0
-            prev_ctr = prev_7_days['ctr'].mean() if not prev_7_days.empty else 0
+            current_clicks = group[(group['date'] >= current_start) & (group['date'] <= last_date)]['clicks'].sum()
+            prev_clicks = group[(group['date'] >= prev_start) & (group['date'] <= prev_end)]['clicks'].sum()
             
-            # Anomaly Detection Rules
-            reasons = []
+            growth = 0
+            if prev_clicks > 0:
+                growth = (current_clicks - prev_clicks) / prev_clicks
             
-            # Rule 1: Zombie Product (High cost, no clicks)
-            if curr_cost > 30 and curr_clicks == 0:
-                reasons.append(f"Zombie Product (Cost ${curr_cost:.2f}, 0 Clicks)")
+            is_growth_bad = False
+            if prev_clicks > 0:
+                 if growth <= 0: is_growth_bad = True
+            else:
+                 if current_clicks == 0: is_growth_bad = True
             
-            # Rule 2: CTR Decline > 30%
-            if prev_ctr > 0 and curr_ctr < prev_ctr * 0.7:
-                decline_pct = (prev_ctr - curr_ctr) / prev_ctr * 100
-                reasons.append(f"CTR -{decline_pct:.0f}%")
-            
-            # Rule 3: Cost Efficiency Degradation (cost up, clicks down)
-            if prev_cost > 0 and prev_clicks > 0:
-                prev_cpc = prev_cost / prev_clicks
-                curr_cpc = curr_cost / curr_clicks if curr_clicks > 0 else float('inf')
-                if curr_cpc > prev_cpc * 1.5 and curr_cost > 20:
-                    reasons.append(f"CPC +{((curr_cpc - prev_cpc) / prev_cpc * 100):.0f}%")
-            
-            if reasons:
+            if is_growth_bad:
+                # Calculate summary stats for display (3d vs prev 7d)
+                curr_3d_mask = (group['date'] >= current_start) & (group['date'] <= last_date)
+                prev_7d_mask = (group['date'] >= last_date - pd.Timedelta(days=9)) & (group['date'] <= last_date - pd.Timedelta(days=3))
+                
+                curr_cost = group[curr_3d_mask]['cost'].sum()
+                prev_cost = group[prev_7d_mask]['cost'].sum()
+                
+                curr_clicks_sum = group[curr_3d_mask]['clicks'].sum()
+                prev_clicks_sum = group[prev_7d_mask]['clicks'].sum()
+                
+                # Calculate average CTR/CPC for the periods to show trend
+                curr_avg_ctr = group[curr_3d_mask]['ctr'].mean()
+                prev_avg_ctr = group[prev_7d_mask]['ctr'].mean()
+                curr_avg_cpc = group[curr_3d_mask]['avg_cpc'].mean()
+                prev_avg_cpc = group[prev_7d_mask]['avg_cpc'].mean()
+
+                # Determine specific efficiency reason
+                efficiency_details = []
+
+                if prev_avg_ctr > 0 and curr_avg_ctr < prev_avg_ctr * 0.8:
+                    drop_pct = (prev_avg_ctr - curr_avg_ctr) / prev_avg_ctr * 100
+                    efficiency_details.append(f"CTR -{drop_pct:.0f}%")
+                if prev_avg_cpc > 0 and curr_avg_cpc > prev_avg_cpc * 1.25:
+                    rise_pct = (curr_avg_cpc - prev_avg_cpc) / prev_avg_cpc * 100
+                    efficiency_details.append(f"CPC +{rise_pct:.0f}%")
+                
+                reason_str = " & ".join(efficiency_details)
+                if not reason_str: reason_str = "Efficiency Alert"
+
                 anomalies.append({
                     "id": str(item_id),
                     "item_id": str(item_id),
-                    "title": str(title)[:50],  # Truncate long titles
+                    "title": str(title)[:50],
                     "date": last_date.strftime('%Y-%m-%d'),
                     "curr_cost": float(curr_cost),
                     "prev_cost": float(prev_cost),
-                    "curr_clicks": float(curr_clicks),
-                    "prev_clicks": float(prev_clicks),
-                    "curr_ctr": float(curr_ctr) if not pd.isna(curr_ctr) else 0.0,
-                    "prev_ctr": float(prev_ctr) if not pd.isna(prev_ctr) else 0.0,
-                    "reason": " & ".join(reasons)
+                    "curr_clicks": float(curr_clicks_sum),
+                    "prev_clicks": float(prev_clicks_sum),
+                    "curr_ctr": float(curr_avg_ctr) if not pd.isna(curr_avg_ctr) else 0.0,
+                    "prev_ctr": float(prev_avg_ctr) if not pd.isna(prev_avg_ctr) else 0.0,
+                    # Using CTR/CPC instead of ROAS/CPA for frontend display
+                    "current_conv": float(current_clicks),  # clicks as proxy for conversions
+                    "prev_conv": float(prev_clicks),
+                    "curr_roas": float(curr_avg_ctr) if not pd.isna(curr_avg_ctr) else 0.0,  # CTR as proxy
+                    "prev_roas": float(prev_avg_ctr) if not pd.isna(prev_avg_ctr) else 0.0,
+                    "curr_cpa": float(curr_avg_cpc) if not pd.isna(curr_avg_cpc) else 0.0,  # CPC as proxy
+                    "prev_cpa": float(prev_avg_cpc) if not pd.isna(prev_avg_cpc) else 0.0,
+                    "reason": f"{reason_str} & No Growth"
                 })
         
         # Sort by cost (highest cost issues first)
         anomalies.sort(key=lambda x: x['curr_cost'], reverse=True)
-        return anomalies[:20]  # Limit to top 20
+        print(f"Product Anomalies: Detected {len(anomalies)} total")
+        return anomalies  # Return all anomalies (pagination handled by API)
 
     except Exception as e:
         print(f"Product Anomaly Detection Error: {e}")
         return []
     finally:
         conn.close()
+
+
 
 
 class AgentService:
@@ -1045,9 +1571,8 @@ class AgentService:
             tool_args = tool_call.get('args', {})
             tool_id = tool_call.get('id')
             
-            # Robust Fallback for ID
+            # Robust Fallback for ID (some models don't return tool_call_id)
             if not tool_id:
-                print(f"⚠️ Warning: Missing tool_call_id for {tool_name}, generating random one.")
                 tool_id = str(uuid.uuid4())
             
             print(f"🔧 Executing Tool: {tool_name} (ID: {tool_id})")
@@ -1129,36 +1654,30 @@ class AgentService:
         # Ensure System Prompt
         if not isinstance(messages[0], SystemMessage):
             system_prompt = SystemMessage(content=f"""你是 AdsManager Main Agent (任务调度器)。
-你的职责是实时监控广告表现，并协调“专项专家”进行深入诊断。
+你的职责是实时监控广告表现，并协调"专项专家"进行深入诊断。
 
 **当前活跃的专项专家 (仅限以下):**
 {expertise_section}
 
 **时间维度决策:**
-- 你必须根据用户的提问（如“分析本周”、“分析1月1日到18日”）或者通过上下文感知来决定 `start_date` 和 `end_date`。
+- 你必须根据用户的提问（如"分析本周"、"分析1月1日到18日"）或者通过上下文感知来决定 `start_date` 和 `end_date`。
 - 如果用户没有指定，默认使用数据截止日期（如 2026-01-18）的前7天。
-- 将时间范围透传给下层工具函数。
 
 **工作流程与汇报原则:**
-1. **显性化思考**: 在调用任何工具前，你必须先输出一段分析思路（例如：“监测到结果...我将启动...”）。
-2. **全量扫描与汇报**: 
-   - 当调用 `scan_campaigns_for_anomalies` 时，如果返回结果包含多个广告系列，你【必须】在汇总汇报中涵盖【所有】被识别出的异常系列。严禁只保留一个或过度简化。
-3. **多维专家调度**: 
-   - 对于每一个被检测出的异常系列，你应当根据其“初步核心原因”（Root Cause）决定调遣哪些专家。
-   - 如果一个系列同时存在主词损耗和人群偏差，你应当在一个轮次内同时启动对应的多个专家工具 `analyze_specific_table`（如 search_term + age + gender）。
-4. **汇总报告**: 将所有专家的深度分析结论进行聚合，生成专业、结构化且全中文化的最终总结。
+1. **显性化思考**: 在调用任何工具前，你必须先输出一段分析思路。
+2. **⚠️ 强制全量汇报 (CRITICAL)**: 
+   - 当 `scan_campaigns_for_anomalies` 返回 N 个异常时，你的最终报告【必须】包含【全部 N 个】异常系列。
+   - 🚨 **严禁省略**：如果扫描返回4个异常，你必须报告4个，不能只报告1个。
+3. **多维专家调度**: 对于每一个被检测出的异常系列，根据其根本原因调遣专家。
+4. **汇总报告**: 对于每个异常系列都需要单独成节汇报。
 
 **原则:**
-- 只有看到用户勾选了某个表对应的 Agent，你才具备调遣该专家的权限。
-- 输出必须专业、准确。深度分析结果必须准确标注数据来源（例如 "(数据来源: channel 表)"）。
-- **透明化执行**: 用户需要看到你对每一个异常系列的专家分派过程。
+- 只有用户勾选了某个表的Agent，你才能调遣该专家。
+- 输出必须专业、准确、全中文。
 """)
             messages = [system_prompt] + messages
             
-        # SANITIZE HISTORY: Bypass 'thought_signature' check for past turns
-        # We only strictly need structured objects for the *current* turn if we are processing it.
-        # But here, we are invoking the model to *generate* the next step.
-        # So previous steps can be flattened.
+        # SANITIZE HISTORY
         safe_messages = self._sanitize_history(messages)
 
         print(f"🤖 Invoking Main Model ({MAIN_MODEL_NAME}) with {len(safe_messages)} safe messages...")
@@ -1275,7 +1794,82 @@ class AgentService:
             columns = [description[0] for description in cursor.description]
             display_columns = [c for c in columns if c not in ['_pinned', '_order']]
             
+            # Define preferred column order (important columns first)
+            COLUMN_ORDER = {
+                'campaign': ['date', 'campaign', 'campaign_status', 'roas', 'roas_before_7d_average', 'roas_compare', 'cpa', 'cpa_before_7d_average', 'cpa_compare', 'conversions', 'conv_value', 'cost', 'clicks', 'impressions', 'ctr', 'conversions_rate', 'budget', 'campaign_type', 'search_impr_share'],
+                'product': ['date', 'title', 'item_id', 'ctr', 'ctr_before_7d_average', 'ctr_compare', 'avg_cpc', 'cpc_before_7d_average', 'cpc_compare', 'cost', 'clicks', 'impr', 'price', 'status', 'issues', 'merchant_id'],
+                'search_term': ['date', 'search_term', 'conversions', 'cost', 'clicks', 'impressions', 'ctr', 'campaign', 'ad_group'],
+            }
+            
+            # Reorder columns if table has configured order
+            if table_name in COLUMN_ORDER:
+                preferred = COLUMN_ORDER[table_name]
+                # Create ordered list: preferred columns first (in order), then remaining columns
+                ordered = []
+                for col in preferred:
+                    if col in display_columns:
+                        ordered.append(col)
+                for col in display_columns:
+                    if col not in ordered:
+                        ordered.append(col)
+                display_columns = ordered
+            
             data = [dict(row) for row in rows]
+            
+            # Post-process product data to add comparison columns (like campaign has roas_compare, cpa_compare)
+            if table_name == 'product' and data:
+                import pandas as pd
+                df = pd.DataFrame(data)
+                
+                # Clean numeric columns
+                for col in ['ctr', 'avg_cpc']:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col].astype(str).str.replace('%', '').str.replace('$', '').str.replace(',', ''), errors='coerce').fillna(0)
+                
+                if 'item_id' in df.columns and 'date' in df.columns:
+                    df['date'] = pd.to_datetime(df['date'])
+                    df = df.sort_values(['item_id', 'date'])
+                    
+                    # Calculate 7-day rolling average for each product
+                    if 'ctr' in df.columns:
+                        df['ctr_before_7d_average'] = df.groupby('item_id')['ctr'].transform(
+                            lambda x: x.shift(1).rolling(window=7, min_periods=1).mean()
+                        ).fillna(0)
+                        # CTR compare: current - average (higher is better, so positive=good)
+                        df['ctr_compare'] = df['ctr'] - df['ctr_before_7d_average']
+                    
+                    if 'avg_cpc' in df.columns:
+                        df['cpc_before_7d_average'] = df.groupby('item_id')['avg_cpc'].transform(
+                            lambda x: x.shift(1).rolling(window=7, min_periods=1).mean()
+                        ).fillna(0)
+                        # CPC compare: current - average (lower is better, so negative=good)
+                        df['cpc_compare'] = df['avg_cpc'] - df['cpc_before_7d_average']
+                    
+                    # Round for display
+                    for col in ['ctr_before_7d_average', 'ctr_compare', 'cpc_before_7d_average', 'cpc_compare']:
+                        if col in df.columns:
+                            df[col] = df[col].round(2)
+                    
+                    # Convert date back to string format (YYYY-MM-DD) to avoid T00:00:00
+                    df['date'] = df['date'].dt.strftime('%Y-%m-%d')
+                    
+                    # Sort by date descending (most recent first) as default
+                    df = df.sort_values('date', ascending=False)
+                    
+                    data = df.to_dict('records')
+                    
+                    # Update display columns to include new comparison columns
+                    new_cols = ['ctr_before_7d_average', 'ctr_compare', 'cpc_before_7d_average', 'cpc_compare']
+                    # Insert after ctr and avg_cpc
+                    updated_columns = []
+                    for col in display_columns:
+                        updated_columns.append(col)
+                        if col == 'ctr':
+                            updated_columns.extend(['ctr_before_7d_average', 'ctr_compare'])
+                        elif col == 'avg_cpc':
+                            updated_columns.extend(['cpc_before_7d_average', 'cpc_compare'])
+                    display_columns = updated_columns
+            
             return {"columns": display_columns, "data": data}
         except Exception as e:
             return {"error": str(e)}
@@ -1286,9 +1880,77 @@ class AgentService:
         """Wrapper for standalone logic"""
         return get_campaign_anomalies_logic(target_date)
 
+    def get_campaign_analyzable_date_range(self):
+        """
+        Get the analyzable date range for campaign anomalies.
+        A date is analyzable if it has at least 10 days of prior data (3 check + 7 history).
+        """
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT MIN(date), MAX(date) FROM campaign")
+            result = cursor.fetchone()
+            
+            if result and result[0] and result[1]:
+                from datetime import datetime, timedelta
+                min_data_date = datetime.strptime(result[0], '%Y-%m-%d')
+                max_data_date = datetime.strptime(result[1], '%Y-%m-%d')
+                
+                # Analyzable min date = earliest data date + 10 days
+                analyzable_min = min_data_date + timedelta(days=10)
+                
+                return {
+                    "min_date": analyzable_min.strftime('%Y-%m-%d'),
+                    "max_date": max_data_date.strftime('%Y-%m-%d'),
+                    "data_start": result[0],
+                    "data_end": result[1]
+                }
+            return {"min_date": None, "max_date": None}
+        except Exception as e:
+            print(f"Error getting campaign date range: {e}")
+            return {"min_date": None, "max_date": None, "error": str(e)}
+        finally:
+            conn.close()
+
+
     def get_product_anomalies(self, target_date: str = None):
         """Wrapper for product anomaly detection"""
         return get_product_anomalies_logic(target_date)
+
+    def get_product_analyzable_date_range(self):
+        """
+        Get the analyzable date range for product anomalies.
+        A date is analyzable if it has at least 7 days of prior data.
+        Returns: {min_date, max_date} where min_date = data_start + 7 days
+        """
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT MIN(date), MAX(date) FROM product")
+            result = cursor.fetchone()
+            
+            if result and result[0] and result[1]:
+                from datetime import datetime, timedelta
+                min_data_date = datetime.strptime(result[0], '%Y-%m-%d')
+                max_data_date = datetime.strptime(result[1], '%Y-%m-%d')
+                
+                # Analyzable min date = earliest data date + 10 days
+                # (need 3 check days + 7 prior days for average calculation)
+                analyzable_min = min_data_date + timedelta(days=10)
+                
+                return {
+                    "min_date": analyzable_min.strftime('%Y-%m-%d'),
+                    "max_date": max_data_date.strftime('%Y-%m-%d'),
+                    "data_start": result[0],
+                    "data_end": result[1]
+                }
+            return {"min_date": None, "max_date": None}
+        except Exception as e:
+            print(f"Error getting date range: {e}")
+            return {"min_date": None, "max_date": None, "error": str(e)}
+        finally:
+            conn.close()
+
 
     def update_preference(self, table_name: str, item_identifier: str, is_pinned: int = None, display_order: int = None):
         conn = get_db_connection()
@@ -1392,6 +2054,444 @@ class AgentService:
         finally:
             conn.close()
 
+    def get_campaign_anomaly_details(self, campaign_name: str, start_date: str = None, end_date: str = None):
+        """
+        严格按照图片规则判定异常:
+        【触发条件】
+        - ROAS 连续 3 天低于 20%
+        - 或 CPA 连续 3 天高于 7 天均值 ≥25%
+        - 同期转化量未同比增长
+        【专业经验】
+        - Display占比>35%且ROAS<全账户均值50% → Pmax吃低质流量
+        - 广泛匹配占比增加 + Search Term CVR下降 → 流量质量下降
+        """
+        result = {}
+        conn = get_db_connection()
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # 使用end_date作为目标日期，如果没有则用今天
+        target_date = end_date or start_date or '2026-01-18'
+        
+        date_filter = ""
+        date_params = []
+        if start_date:
+            date_filter += " AND date >= ?"
+            date_params.append(start_date)
+        if end_date:
+            date_filter += " AND date <= ?"
+            date_params.append(end_date)
+        
+        try:
+            # =========================================================================
+            # 第一步: 账户级基准数据
+            # =========================================================================
+            
+            # 账户7天平均ROAS
+            cursor.execute("""
+                SELECT AVG(CAST(conv_value AS REAL) / NULLIF(CAST(cost AS REAL), 0)) as avg_roas
+                FROM campaign WHERE CAST(cost AS REAL) > 0
+            """)
+            row = cursor.fetchone()
+            account_avg_roas = row['avg_roas'] if row and row['avg_roas'] else 2.0
+            
+            # =========================================================================
+            # 第二步: 【图片规则1】ROAS 连续 3 天低于 20% 检测
+            # =========================================================================
+            cursor.execute("""
+                SELECT date, 
+                       SUM(CAST(conv_value AS REAL)) / NULLIF(SUM(CAST(cost AS REAL)), 0) as daily_roas
+                FROM campaign 
+                WHERE campaign = ? AND date >= date(?, '-3 days') AND date <= ?
+                GROUP BY date ORDER BY date DESC
+            """, (campaign_name, target_date, target_date))
+            daily_roas_rows = cursor.fetchall()
+            
+            roas_3day_anomaly = False
+            roas_3day_values = []
+            if len(daily_roas_rows) >= 3:
+                for r in daily_roas_rows[:3]:
+                    daily_r = r['daily_roas'] or 0
+                    roas_3day_values.append(round(daily_r, 2))
+                    # 低于账户均值20%
+                    if daily_r < account_avg_roas * 0.2:
+                        pass  # 单日检测
+                # 连续3天都低于20%才算异常
+                roas_3day_anomaly = all(r < account_avg_roas * 0.2 for r in roas_3day_values)
+            
+            # =========================================================================
+            # 第三步: 【图片规则2】CPA 连续 3 天高于 7 天均值 ≥25%
+            # =========================================================================
+            # 计算7天平均CPA
+            cursor.execute("""
+                SELECT SUM(CAST(cost AS REAL)) / NULLIF(SUM(CAST(conversions AS REAL)), 0) as avg_cpa_7d
+                FROM campaign 
+                WHERE campaign = ? AND date >= date(?, '-7 days') AND date <= ?
+            """, (campaign_name, target_date, target_date))
+            row = cursor.fetchone()
+            avg_cpa_7d = row['avg_cpa_7d'] if row and row['avg_cpa_7d'] else 50.0
+            
+            # 查询最近3天每日CPA
+            cursor.execute("""
+                SELECT date,
+                       SUM(CAST(cost AS REAL)) / NULLIF(SUM(CAST(conversions AS REAL)), 0) as daily_cpa
+                FROM campaign 
+                WHERE campaign = ? AND date >= date(?, '-3 days') AND date <= ?
+                GROUP BY date ORDER BY date DESC
+            """, (campaign_name, target_date, target_date))
+            daily_cpa_rows = cursor.fetchall()
+            
+            cpa_3day_anomaly = False
+            cpa_3day_values = []
+            cpa_threshold = avg_cpa_7d * 1.25  # 高于25%
+            if len(daily_cpa_rows) >= 3:
+                for r in daily_cpa_rows[:3]:
+                    daily_c = r['daily_cpa'] or 0
+                    cpa_3day_values.append(round(daily_c, 2))
+                # 连续3天都高于7天均值25%才算异常
+                cpa_3day_anomaly = all(c > cpa_threshold for c in cpa_3day_values if c > 0)
+            
+            # =========================================================================
+            # 第四步: 【图片规则3】广泛匹配占比增加 + CVR下降 检测 (7天 vs 前7天)
+            # =========================================================================
+            # 当前7天
+            cursor.execute("""
+                SELECT SUM(CAST(conversions AS REAL)) as conv,
+                       SUM(CAST(interactions AS REAL)) as clicks,
+                       SUM(CASE WHEN LOWER(match_type) LIKE '%broad%' THEN CAST(cost AS REAL) ELSE 0 END) as broad_cost,
+                       SUM(CAST(cost AS REAL)) as total_cost
+                FROM search_term
+                WHERE campaign = ? AND date >= date(?, '-7 days') AND date <= ?
+            """, (campaign_name, target_date, target_date))
+            current = cursor.fetchone()
+            
+            # 前7天 (14天前到7天前)
+            cursor.execute("""
+                SELECT SUM(CAST(conversions AS REAL)) as conv,
+                       SUM(CAST(interactions AS REAL)) as clicks,
+                       SUM(CASE WHEN LOWER(match_type) LIKE '%broad%' THEN CAST(cost AS REAL) ELSE 0 END) as broad_cost,
+                       SUM(CAST(cost AS REAL)) as total_cost
+                FROM search_term
+                WHERE campaign = ? AND date >= date(?, '-14 days') AND date < date(?, '-7 days')
+            """, (campaign_name, target_date, target_date))
+            previous = cursor.fetchone()
+            
+            broad_cvr_anomaly = False
+            current_broad_share = 0
+            prev_broad_share = 0
+            current_cvr = 0
+            prev_cvr = 0
+            
+            if current and previous:
+                current_clicks = current['clicks'] or 0
+                current_conv = current['conv'] or 0
+                current_total_cost = current['total_cost'] or 0
+                current_broad_cost = current['broad_cost'] or 0
+                
+                prev_clicks = previous['clicks'] or 0
+                prev_conv = previous['conv'] or 0
+                prev_total_cost = previous['total_cost'] or 0
+                prev_broad_cost = previous['broad_cost'] or 0
+                
+                current_cvr = current_conv / current_clicks if current_clicks > 0 else 0
+                prev_cvr = prev_conv / prev_clicks if prev_clicks > 0 else 0
+                current_broad_share = current_broad_cost / current_total_cost if current_total_cost > 0 else 0
+                prev_broad_share = prev_broad_cost / prev_total_cost if prev_total_cost > 0 else 0
+                
+                # 广泛匹配占比增加(>5%) + CVR下降(>20%)
+                broad_increase = current_broad_share - prev_broad_share
+                cvr_decline = (prev_cvr - current_cvr) / prev_cvr if prev_cvr > 0 else 0
+                
+                broad_cvr_anomaly = broad_increase > 0.05 and cvr_decline > 0.20
+            
+            # =========================================================================
+            # 存储趋势检测结果到 _baseline
+            # =========================================================================
+            result['_baseline'] = {
+                'account_avg_roas': round(account_avg_roas, 2),
+                'avg_cpa_7d': round(avg_cpa_7d, 2),
+                # 图片规则1: ROAS连续3天
+                'roas_3day_values': roas_3day_values,
+                'roas_3day_anomaly': roas_3day_anomaly,
+                'roas_3day_threshold': round(account_avg_roas * 0.2, 2),
+                # 图片规则2: CPA连续3天
+                'cpa_3day_values': cpa_3day_values,
+                'cpa_3day_anomaly': cpa_3day_anomaly,
+                'cpa_threshold': round(cpa_threshold, 2),
+                # 图片规则3: 广泛匹配+CVR
+                'current_broad_share': round(current_broad_share * 100, 1),
+                'prev_broad_share': round(prev_broad_share * 100, 1),
+                'current_cvr': round(current_cvr * 100, 2),
+                'prev_cvr': round(prev_cvr * 100, 2),
+                'broad_cvr_anomaly': broad_cvr_anomaly
+            }
+            
+            # =========================================================================
+            # 1. Search Term - 规则: 垃圾词 + 广泛匹配CVR下降 + 高消耗零转化
+            # =========================================================================
+            junk_patterns = ['free', 'repair', 'login', 'support', 'manual', 'review', 'whatsapp', 'tutorial', 'how to', 'what is', 'download', 'crack', 'hack']
+            junk_pattern_sql = " OR ".join([f"LOWER(search_term) LIKE '%{p}%'" for p in junk_patterns])
+            
+            # 计算Campaign平均CVR作为基准 (使用interactions作为clicks)
+            cursor.execute(f"""
+                SELECT SUM(CAST(conversions AS REAL)) as total_conv, 
+                       SUM(CAST(interactions AS REAL)) as total_clicks
+                FROM search_term 
+                WHERE campaign = ? {date_filter}
+            """, (campaign_name, *date_params))
+            cvr_row = cursor.fetchone()
+            total_conv = cvr_row['total_conv'] or 0
+            total_clicks = cvr_row['total_clicks'] or 0
+            campaign_avg_cvr = total_conv / total_clicks if total_clicks > 0 else 0
+            cvr_threshold = campaign_avg_cvr * 0.5  # 低于均值50%视为异常
+            
+            # 查询异常搜索词: 垃圾词 或 高消耗零转化 或 CVR低于均值50%
+            query = f"""
+                SELECT *, 
+                    (CAST(conversions AS REAL) / NULLIF(CAST(interactions AS REAL), 0)) as cvr
+                FROM search_term 
+                WHERE campaign = ? {date_filter}
+                AND (
+                    ({junk_pattern_sql})
+                    OR (CAST(cost AS REAL) > 1 AND CAST(conversions AS REAL) = 0)
+                    OR (CAST(interactions AS REAL) > 1 AND (CAST(conversions AS REAL) / NULLIF(CAST(interactions AS REAL), 0)) < ?)
+                )
+                ORDER BY CAST(cost AS REAL) DESC
+                LIMIT 50
+            """
+            cursor.execute(query, (campaign_name, *date_params, cvr_threshold))
+            rows = cursor.fetchall()
+            if rows:
+                columns = [d[0] for d in cursor.description]
+                result['search_term'] = {
+                    "columns": columns, 
+                    "data": [dict(r) for r in rows], 
+                    "rule": f"垃圾词/CVR<{cvr_threshold*100:.1f}%/高消耗零转化",
+                    "anomaly_count": len(rows),
+                    "campaign_avg_cvr": round(campaign_avg_cvr * 100, 2)
+                }
+            else:
+                result['search_term'] = {"columns": [], "data": [], "rule": "无异常", "anomaly_count": 0}
+            
+            # 2. Channel - 规则: Display占比>35%且ROAS<均值50% (Pmax吃低质流量)
+            # =========================================================================
+            try:
+                # 先计算该Campaign各渠道的花费和ROAS
+                cursor.execute(f"""
+                    SELECT channels, 
+                           SUM(CAST(cost AS REAL)) as cost, 
+                           SUM(CAST(results_value AS REAL)) as value,
+                           SUM(CAST(conversions AS REAL)) as conversions
+                    FROM channel 
+                    WHERE campaigns LIKE ? {date_filter}
+                    GROUP BY channels
+                """, (f"%{campaign_name}%", *date_params))
+                channel_rows = cursor.fetchall()
+                
+                total_channel_cost = sum(r['cost'] or 0 for r in channel_rows)
+                total_channel_value = sum(r['value'] or 0 for r in channel_rows)
+                camp_roas = total_channel_value / total_channel_cost if total_channel_cost > 0 else 0
+                
+                # 计算Display占比
+                display_cost = sum(r['cost'] or 0 for r in channel_rows if r['channels'] and 'display' in r['channels'].lower())
+                display_ratio = display_cost / total_channel_cost if total_channel_cost > 0 else 0
+                
+                # 筛选异常渠道: Display/Video占比>35%且ROAS<Campaign均值50%
+                anomaly_channels = []
+                for r in channel_rows:
+                    ch_name = r['channels'] or ''
+                    ch_cost = r['cost'] or 0
+                    ch_value = r['value'] or 0
+                    ch_roas = ch_value / ch_cost if ch_cost > 0 else 0
+                    ch_share = ch_cost / total_channel_cost if total_channel_cost > 0 else 0
+                    
+                    # 规则: 占比>35% 且 ROAS<均值50%
+                    is_anomaly = ch_share > 0.35 and ch_roas < (camp_roas * 0.5)
+                    # 或: 高消耗零转化
+                    is_high_cost_zero = ch_cost > 50 and (r['conversions'] or 0) == 0
+                    
+                    if is_anomaly or is_high_cost_zero:
+                        anomaly_channels.append({
+                            'channels': ch_name,
+                            'cost': ch_cost,
+                            'value': ch_value,
+                            'conversions': r['conversions'] or 0,
+                            'roas': round(ch_roas, 2),
+                            'share': round(ch_share * 100, 1),
+                            'anomaly_reason': '占比>35%且ROAS低' if is_anomaly else '高消耗零转化'
+                        })
+                
+                # 构建规则描述
+                rule_desc = f"Display占比{display_ratio*100:.0f}%"
+                if display_ratio > 0.35:
+                    rule_desc += ">35% (Pmax吃低质流量风险)"
+                
+                if anomaly_channels:
+                    result['channel'] = {
+                        "columns": ['channels', 'cost', 'value', 'conversions', 'roas', 'share', 'anomaly_reason'],
+                        "data": anomaly_channels,
+                        "rule": rule_desc,
+                        "anomaly_count": len(anomaly_channels),
+                        "display_ratio": round(display_ratio * 100, 1),
+                        "camp_roas": round(camp_roas, 2)
+                    }
+                else:
+                    result['channel'] = {"columns": [], "data": [], "rule": "无异常", "anomaly_count": 0, "display_ratio": round(display_ratio * 100, 1)}
+            except Exception as e:
+                result['channel'] = {"columns": [], "data": [], "rule": f"查询错误: {str(e)}", "anomaly_count": 0}
+            
+            # 3. Audience - 只返回高消耗零转化受众 (仅异常行)
+            # =========================================================================
+            try:
+                query = f"""
+                    SELECT * FROM audience 
+                    WHERE campaign = ? {date_filter}
+                    AND CAST(cost AS REAL) > 1 AND CAST(conversions AS REAL) = 0
+                    ORDER BY CAST(cost AS REAL) DESC
+                    LIMIT 30
+                """
+                cursor.execute(query, (campaign_name, *date_params))
+                rows = cursor.fetchall()
+                if rows:
+                    columns = [d[0] for d in cursor.description]
+                    result['audience'] = {
+                        "columns": columns, 
+                        "data": [dict(r) for r in rows], 
+                        "rule": "Cost>$1 且 Conv=0",
+                        "anomaly_count": len(rows)
+                    }
+                else:
+                    result['audience'] = {"columns": [], "data": [], "rule": "无异常", "anomaly_count": 0}
+            except:
+                result['audience'] = {"columns": [], "data": [], "rule": "表不存在", "anomaly_count": 0}
+            
+            # 4. Location - 只返回预算黑洞 (仅异常行)
+            # =========================================================================
+            try:
+                query = f"""
+                    SELECT * FROM location_by_cities_all_campaign 
+                    WHERE campaign = ? {date_filter}
+                    AND CAST(cost AS REAL) > 1 AND CAST(conversions AS REAL) = 0
+                    ORDER BY CAST(cost AS REAL) DESC
+                    LIMIT 30
+                """
+                cursor.execute(query, (campaign_name, *date_params))
+                rows = cursor.fetchall()
+                if rows:
+                    columns = [d[0] for d in cursor.description]
+                    result['location_by_cities_all_campaign'] = {
+                        "columns": columns, 
+                        "data": [dict(r) for r in rows], 
+                        "rule": "预算黑洞",
+                        "anomaly_count": len(rows)
+                    }
+                else:
+                    result['location_by_cities_all_campaign'] = {"columns": [], "data": [], "rule": "无异常", "anomaly_count": 0}
+            except:
+                result['location_by_cities_all_campaign'] = {"columns": [], "data": [], "rule": "表不存在", "anomaly_count": 0}
+            
+            # 5. Age - 只返回低效年龄段 (仅异常行)
+            # =========================================================================
+            try:
+                query = f"""
+                    SELECT * FROM age 
+                    WHERE campaign = ? {date_filter}
+                    AND CAST(cost AS REAL) > 1 AND CAST(conversions AS REAL) = 0
+                    ORDER BY CAST(cost AS REAL) DESC
+                """
+                cursor.execute(query, (campaign_name, *date_params))
+                rows = cursor.fetchall()
+                if rows:
+                    columns = [d[0] for d in cursor.description]
+                    result['age'] = {
+                        "columns": columns, 
+                        "data": [dict(r) for r in rows], 
+                        "rule": "Cost>$1 且 Conv=0",
+                        "anomaly_count": len(rows)
+                    }
+                else:
+                    result['age'] = {"columns": [], "data": [], "rule": "无异常", "anomaly_count": 0}
+            except:
+                result['age'] = {"columns": [], "data": [], "rule": "表不存在", "anomaly_count": 0}
+            
+            # 6. Gender - 只返回低效性别 (仅异常行)
+            # =========================================================================
+            try:
+                query = f"""
+                    SELECT * FROM gender 
+                    WHERE campaign = ? {date_filter}
+                    AND CAST(cost AS REAL) > 1 AND CAST(conversions AS REAL) = 0
+                    ORDER BY CAST(cost AS REAL) DESC
+                """
+                cursor.execute(query, (campaign_name, *date_params))
+                rows = cursor.fetchall()
+                if rows:
+                    columns = [d[0] for d in cursor.description]
+                    result['gender'] = {
+                        "columns": columns, 
+                        "data": [dict(r) for r in rows], 
+                        "rule": "Cost>$1 且 Conv=0",
+                        "anomaly_count": len(rows)
+                    }
+                else:
+                    result['gender'] = {"columns": [], "data": [], "rule": "无异常", "anomaly_count": 0}
+            except:
+                result['gender'] = {"columns": [], "data": [], "rule": "表不存在", "anomaly_count": 0}
+            
+            # 7. Ad Schedule - 只返回低效时段 (仅异常行)
+            # =========================================================================
+            try:
+                query = f"""
+                    SELECT * FROM ad_schedule 
+                    WHERE campaign = ? {date_filter}
+                    AND CAST(cost AS REAL) > 1 AND CAST(conversions AS REAL) = 0
+                    ORDER BY CAST(cost AS REAL) DESC
+                    LIMIT 30
+                """
+                cursor.execute(query, (campaign_name, *date_params))
+                rows = cursor.fetchall()
+                if rows:
+                    columns = [d[0] for d in cursor.description]
+                    result['ad_schedule'] = {
+                        "columns": columns, 
+                        "data": [dict(r) for r in rows], 
+                        "rule": "低效时段",
+                        "anomaly_count": len(rows)
+                    }
+                else:
+                    result['ad_schedule'] = {"columns": [], "data": [], "rule": "无异常", "anomaly_count": 0}
+            except:
+                result['ad_schedule'] = {"columns": [], "data": [], "rule": "表不存在", "anomaly_count": 0}
+            
+            # 8. Asset - 只返回低效素材 (仅异常行)
+            # =========================================================================
+            try:
+                query = f"""
+                    SELECT * FROM asset 
+                    WHERE campaign = ? {date_filter}
+                    AND CAST(cost AS REAL) > 1 AND CAST(conversions AS REAL) = 0
+                    ORDER BY CAST(cost AS REAL) DESC
+                    LIMIT 30
+                """
+                cursor.execute(query, (campaign_name, *date_params))
+                rows = cursor.fetchall()
+                if rows:
+                    columns = [d[0] for d in cursor.description]
+                    result['asset'] = {
+                        "columns": columns, 
+                        "data": [dict(r) for r in rows], 
+                        "rule": "低效素材",
+                        "anomaly_count": len(rows)
+                    }
+                else:
+                    result['asset'] = {"columns": [], "data": [], "rule": "无异常", "anomaly_count": 0}
+            except:
+                result['asset'] = {"columns": [], "data": [], "rule": "表不存在", "anomaly_count": 0}
+            
+            return result
+        finally:
+            conn.close()
+
     def _init_custom_rules_db(self):
         """Initialize the custom rules table if it doesn't exist"""
         conn = get_db_connection()
@@ -1473,14 +2573,18 @@ class AgentService:
             return {
                 "title": knowledge.get("title", ""),
                 "focus": knowledge.get("focus", ""),
-                "metrics_desc": knowledge.get("metrics_desc", ""),
-                "expert_rules": knowledge.get("expert_rules", "").strip(),
+                "data_source": knowledge.get("data_source", ""),
+                "extraction_method": knowledge.get("extraction_method", "").strip(),
+                "hard_rules": knowledge.get("hard_rules", "").strip(),
                 "default_prompt": f"""【{knowledge.get("title", "")}】
 专注领域: {knowledge.get("focus", "")}
-指标说明: {knowledge.get("metrics_desc", "")}
+数据来源: {knowledge.get("data_source", "")}
 
-专家规则:
-{knowledge.get("expert_rules", "").strip()}"""
+数据提取方法:
+{knowledge.get("extraction_method", "").strip()}
+
+硬规则判定:
+{knowledge.get("hard_rules", "").strip()}"""
             }
         else:
             return {"error": f"Unknown agent: {table_name}", "default_prompt": ""}

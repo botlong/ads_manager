@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { LayoutDashboard, Filter, X, Zap, Activity, ShoppingBag, RotateCcw } from 'lucide-react';
+import { LayoutDashboard, Filter, X, Zap, Activity, ShoppingBag, RotateCcw, LogOut, User } from 'lucide-react';
 import ResizableTable from './ResizableTable';
 import AnomalyDashboard from './AnomalyDashboard';
 import ProductMonitor from './ProductMonitor';
 import { API_BASE_URL } from '../config';
+import { useAuth } from '../context/AuthContext';
 
 export default function App() {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
+    const { user, logout, authFetch } = useAuth();
 
     // Shared State -> Removed redundant explicit dates.
     // Date filtering is now handled solely through the 'filters' and 'productFilters' arrays.
@@ -144,14 +146,13 @@ export default function App() {
                     if (dateFilter.value?.min) params.append('start_date', dateFilter.value.min);
                     if (dateFilter.value?.max) params.append('end_date', dateFilter.value.max);
                 } else if (dateFilter.value) {
-                    // Handle =, >, < etc. by mapping to start/end if possible, 
-                    // but backend mostly expects ranges. For now, just handle explicit values.
                     params.append('start_date', dateFilter.value);
                     params.append('end_date', dateFilter.value);
                 }
             }
 
-            const response = await fetch(`${API_BASE_URL}/api/tables/campaign?${params.toString()}`);
+            // Use authFetch instead of fetch
+            const response = await authFetch(`${API_BASE_URL}/api/tables/campaign?${params.toString()}`);
             const data = await response.json();
             if (!data.error) {
                 setTableData(data.data || []);
@@ -177,7 +178,8 @@ export default function App() {
                 }
             }
 
-            const response = await fetch(`${API_BASE_URL}/api/tables/product?${params.toString()}`);
+            // Use authFetch instead of fetch
+            const response = await authFetch(`${API_BASE_URL}/api/tables/product?${params.toString()}`);
             const data = await response.json();
             if (!data.error) {
                 setProductData(data.data || []);
@@ -487,6 +489,38 @@ export default function App() {
                         <Zap size={20} fill="#6366f1" />
                         AdsManager
                     </div>
+                </div>
+
+                {/* User Profile & Logout */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#475569', fontSize: '14px', fontWeight: '500' }}>
+                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1' }}>
+                            <User size={18} />
+                        </div>
+                        <span>{user?.username || 'User'}</span>
+                    </div>
+                    <button 
+                        onClick={logout}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #e2e8f0',
+                            background: 'white',
+                            color: '#ef4444',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.background = '#fef2f2'}
+                        onMouseOut={(e) => e.currentTarget.style.background = 'white'}
+                    >
+                        <LogOut size={14} />
+                        Logout
+                    </button>
                 </div>
             </div>
 

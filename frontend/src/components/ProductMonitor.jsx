@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Package, TrendingDown, ArrowRight, Calendar } from 'lucide-react';
 import { API_BASE_URL } from '../config';
+import { useAuth } from '../context/AuthContext';
 
 const ProductMonitor = () => {
     const [anomalies, setAnomalies] = useState([]);
@@ -9,6 +10,7 @@ const ProductMonitor = () => {
     const [targetDate, setTargetDate] = useState(() => {
         return localStorage.getItem('product_anomaly_target_date') || '';
     });
+    const { authFetch } = useAuth();
 
     useEffect(() => {
         if (targetDate) {
@@ -24,7 +26,7 @@ const ProductMonitor = () => {
                 ? `${API_BASE_URL}/api/anomalies/product?target_date=${targetDate}`
                 : `${API_BASE_URL}/api/anomalies/product`;
 
-            const res = await fetch(url);
+            const res = await authFetch(url);
             const data = await res.json();
 
             if (Array.isArray(data)) {
@@ -135,21 +137,21 @@ const ProductMonitor = () => {
                                 {/* Metrics */}
                                 <div style={{ display: 'flex', gap: '25px', fontSize: '12px', color: '#555' }}>
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                                        <span style={{ color: '#999', fontSize: '10px', textTransform: 'uppercase' }}>Cost Trend</span>
+                                        <span style={{ color: '#999', fontSize: '10px', textTransform: 'uppercase' }}>Conv Volume</span>
                                         <span style={{ fontWeight: 600 }}>
-                                            ${item.prev_cost.toFixed(2)} <ArrowRight size={10} style={{ margin: '0 4px' }} /> ${item.curr_cost.toFixed(2)}
+                                            {item.prev_conv?.toFixed(2) || '0.00'} <ArrowRight size={10} style={{ margin: '0 4px' }} /> {item.current_conv?.toFixed(2) || '0.00'}
                                         </span>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: '90px' }}>
-                                        <span style={{ color: '#999', fontSize: '10px', textTransform: 'uppercase' }}>Clicks</span>
-                                        <span style={{ fontWeight: 600, color: item.curr_clicks < item.prev_clicks ? '#e67700' : '#333' }}>
-                                            {item.prev_clicks.toFixed(0)} <ArrowRight size={10} style={{ margin: '0 4px' }} /> {item.curr_clicks.toFixed(0)}
+                                        <span style={{ color: '#999', fontSize: '10px', textTransform: 'uppercase' }}>ROAS Trend</span>
+                                        <span style={{ fontWeight: 600, color: (item.curr_roas < item.prev_roas) ? '#e67700' : '#333' }}>
+                                            {item.prev_roas?.toFixed(2) || '0.00'} <ArrowRight size={10} style={{ margin: '0 4px' }} /> {item.curr_roas?.toFixed(2) || '0.00'}
                                         </span>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: '90px' }}>
-                                        <span style={{ color: '#999', fontSize: '10px', textTransform: 'uppercase' }}>CTR Trend</span>
-                                        <span style={{ fontWeight: 600, color: item.curr_ctr < item.prev_ctr ? '#e67700' : '#333' }}>
-                                            {item.prev_ctr.toFixed(2)}% <ArrowRight size={10} style={{ margin: '0 4px' }} /> {item.curr_ctr.toFixed(2)}%
+                                        <span style={{ color: '#999', fontSize: '10px', textTransform: 'uppercase' }}>CPA Trend</span>
+                                        <span style={{ fontWeight: 600, color: (item.curr_cpa > item.prev_cpa) ? '#e67700' : '#333' }}>
+                                            {item.prev_cpa?.toFixed(2) || '0.00'} <ArrowRight size={10} style={{ margin: '0 4px' }} /> {item.curr_cpa?.toFixed(2) || '0.00'}
                                         </span>
                                     </div>
                                 </div>

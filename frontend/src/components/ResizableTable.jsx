@@ -231,8 +231,8 @@ const ResizableTable = ({
                                             }
                                         }
 
-                                        // Percentages
-                                        else if (column.includes('cvr') || column.includes('ctr') || column.includes('percent')) {
+                                        // Percentages (but NOT comparison columns which have their own formatting)
+                                        else if ((column.includes('cvr') || column.includes('ctr') || column.includes('percent')) && !column.includes('_compare')) {
                                             content = isNumber ? `${num.toFixed(2)}%` : content;
                                         }
 
@@ -263,6 +263,70 @@ const ResizableTable = ({
                                                         {arrow} {Math.abs(num).toFixed(2)}
                                                     </span>
                                                 );
+                                            }
+                                        }
+
+                                        // CTR Column - Higher is better (green for high, red for low)
+                                        else if (column === 'ctr') {
+                                            if (isNumber) {
+                                                // CTR threshold: below 1% is concerning (red), above 2% is good (green)
+                                                let color = '#333'; // neutral
+                                                if (num >= 2) color = '#10b981'; // green - good CTR
+                                                else if (num < 1) color = '#ef4444'; // red - low CTR
+                                                content = (
+                                                    <span style={{ color, fontWeight: num >= 2 || num < 1 ? 'bold' : 'normal' }}>
+                                                        {num.toFixed(2)}%
+                                                    </span>
+                                                );
+                                            }
+                                        }
+
+                                        // CPC Column - Lower is better (green for low, red for high)  
+                                        else if (column === 'avg_cpc') {
+                                            if (isNumber) {
+                                                // CPC threshold: above $2 is concerning (red), below $0.5 is good (green)
+                                                let color = '#333'; // neutral
+                                                if (num <= 0.5) color = '#10b981'; // green - low CPC
+                                                else if (num > 2) color = '#ef4444'; // red - high CPC
+                                                content = (
+                                                    <span style={{ color, fontWeight: num <= 0.5 || num > 2 ? 'bold' : 'normal' }}>
+                                                        ${num.toFixed(2)}
+                                                    </span>
+                                                );
+                                            }
+                                        }
+
+                                        // CTR Comparison (Rise = Green/Good) - matches roas_compare logic
+                                        else if (column === 'ctr_compare') {
+                                            if (isNumber) {
+                                                if (Math.abs(num) < 0.01) {
+                                                    content = <span style={{ color: '#ccc' }}>0.00</span>;
+                                                } else {
+                                                    const color = num > 0 ? 'green' : 'red'; // Higher CTR is good
+                                                    const arrow = num > 0 ? '▲' : '▼';
+                                                    content = (
+                                                        <span style={{ color, fontWeight: 'bold' }}>
+                                                            {arrow} {Math.abs(num).toFixed(2)}
+                                                        </span>
+                                                    );
+                                                }
+                                            }
+                                        }
+
+                                        // CPC Comparison (Drop = Green/Good) - matches cpa_compare logic
+                                        else if (column === 'cpc_compare') {
+                                            if (isNumber) {
+                                                if (Math.abs(num) < 0.01) {
+                                                    content = <span style={{ color: '#ccc' }}>0.00</span>;
+                                                } else {
+                                                    const color = num < 0 ? 'green' : 'red'; // Lower CPC is good
+                                                    const arrow = num > 0 ? '▲' : '▼';
+                                                    content = (
+                                                        <span style={{ color, fontWeight: 'bold' }}>
+                                                            {arrow} {Math.abs(num).toFixed(2)}
+                                                        </span>
+                                                    );
+                                                }
                                             }
                                         }
                                     }

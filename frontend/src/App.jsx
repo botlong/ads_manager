@@ -1,21 +1,70 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import Dashboard from './components/Dashboard'
-import CampaignDetail from './components/CampaignDetail'
-import AgentChat from './components/AgentChat'
-import './App.css'
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import Dashboard from './components/Dashboard';
+import CampaignDetail from './components/CampaignDetail';
+import AgentChat from './components/AgentChat';
+import Login from './components/Login';
+import './App.css';
 
-function App() {
-  return (
-    <BrowserRouter>
-      <div className="app-container">
+// Protected Route Wrapper
+const ProtectedRoute = ({ children }) => {
+    const { token, loading } = useAuth();
+    const location = useLocation();
+
+    if (loading) {
+        return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</div>;
+    }
+
+    if (!token) {
+        return <Navigate to="/login" state={{ from: location }} replace />;
+    }
+
+    return children;
+};
+
+// Layout for authenticated pages (includes AgentChat)
+const AuthenticatedLayout = ({ children }) => {
+    return (
+        <div className="app-container">
+            {children}
+            <AgentChat />
+        </div>
+    );
+};
+
+function AppRoutes() {
+    return (
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/campaign/:campaignName" element={<CampaignDetail />} />
+            <Route path="/login" element={<Login />} />
+            
+            <Route path="/" element={
+                <ProtectedRoute>
+                    <AuthenticatedLayout>
+                        <Dashboard />
+                    </AuthenticatedLayout>
+                </ProtectedRoute>
+            } />
+            
+            <Route path="/campaign/:campaignName" element={
+                <ProtectedRoute>
+                    <AuthenticatedLayout>
+                        <CampaignDetail />
+                    </AuthenticatedLayout>
+                </ProtectedRoute>
+            } />
         </Routes>
-        <AgentChat />
-      </div>
-    </BrowserRouter>
-  )
+    );
 }
 
-export default App
+function App() {
+    return (
+        <AuthProvider>
+            <BrowserRouter>
+                <AppRoutes />
+            </BrowserRouter>
+        </AuthProvider>
+    );
+}
+
+export default App;

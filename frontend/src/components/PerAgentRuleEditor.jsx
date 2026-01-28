@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Edit, X, Zap, Database } from 'lucide-react';
 import { API_BASE_URL } from '../config';
+import { useAuth } from '../context/AuthContext';
 
 export default function PerAgentRuleEditor({ tableId, tableLabel, isSelected, onTempRuleChange }) {
     const [isEditing, setIsEditing] = useState(false);
@@ -9,19 +10,20 @@ export default function PerAgentRuleEditor({ tableId, tableLabel, isSelected, on
     const [tempRule, setTempRule] = useState("");
     const [saveStatus, setSaveStatus] = useState(null);
     const [defaultPrompt, setDefaultPrompt] = useState("");
+    const { authFetch } = useAuth();
 
     // Load saved rule and default prompt on mount
     useEffect(() => {
         const loadData = async () => {
             try {
                 // Load default prompt first
-                const promptResponse = await fetch(`${API_BASE_URL}/api/agent-prompts/${tableId}`);
+                const promptResponse = await authFetch(`${API_BASE_URL}/api/agent-prompts/${tableId}`);
                 const promptData = await promptResponse.json();
                 const defaultText = promptData.default_prompt || "";
                 setDefaultPrompt(defaultText);
 
                 // Then check for custom rule
-                const ruleResponse = await fetch(`${API_BASE_URL}/api/agent-rules/${tableId}`);
+                const ruleResponse = await authFetch(`${API_BASE_URL}/api/agent-rules/${tableId}`);
                 const ruleData = await ruleResponse.json();
 
                 if (ruleData.rule_prompt) {
@@ -57,7 +59,7 @@ export default function PerAgentRuleEditor({ tableId, tableLabel, isSelected, on
         if (!ruleText.trim()) return;
         setSaveStatus('saving');
         try {
-            const response = await fetch(`${API_BASE_URL}/api/agent-rules`, {
+            const response = await authFetch(`${API_BASE_URL}/api/agent-rules`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
