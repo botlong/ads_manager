@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Dashboard from './components/Dashboard';
 import CampaignDetail from './components/CampaignDetail';
+import SeoAnalysis from './components/SeoAnalysis';
 import AgentChat from './components/AgentChat';
 import Login from './components/Login';
 import './App.css';
@@ -37,7 +38,7 @@ function AppRoutes() {
     return (
         <Routes>
             <Route path="/login" element={<Login />} />
-            
+
             <Route path="/" element={
                 <ProtectedRoute>
                     <AuthenticatedLayout>
@@ -45,11 +46,19 @@ function AppRoutes() {
                     </AuthenticatedLayout>
                 </ProtectedRoute>
             } />
-            
+
             <Route path="/campaign/:campaignName" element={
                 <ProtectedRoute>
                     <AuthenticatedLayout>
                         <CampaignDetail />
+                    </AuthenticatedLayout>
+                </ProtectedRoute>
+            } />
+
+            <Route path="/seo-analysis" element={
+                <ProtectedRoute>
+                    <AuthenticatedLayout>
+                        <SeoAnalysis />
                     </AuthenticatedLayout>
                 </ProtectedRoute>
             } />

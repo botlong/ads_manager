@@ -50,7 +50,7 @@ TABLE_EXPERT_KNOWLEDGE = {
         "extraction_method": """
         1. 获取最近3天数据 (current_3d) 和前7天数据 (prev_7d)
         2. 计算均值: avg_roas = mean(prev_7d.roas), avg_cpa = mean(prev_7d.cpa)
-        3. 计算增长率: growth = (current_3d.conv - prev_7d.conv) / prev_7d.conv
+        3. 计算增长率:  
         """,
         "hard_rules": """
         🔴 ROAS崩盘: current_roas < avg_roas * 0.8 → 触发
@@ -227,6 +227,41 @@ TABLE_EXPERT_KNOWLEDGE = {
         ❌ Cost>3x CPA 且 Conv=0 → "建议排除该时段"
         🟡 00:00-05:00 → "注意延迟归因"
         """
+    },
+    "seo": {
+        "title": "SEO Analyst (SEO优化专家)",
+        "focus": """You are a SEO copywriter. For each page provided, output ONLY the optimized Meta Title and Meta Description. 
+
+STRICT OUTPUT RULES:
+1. 禁止写任何分析、诊断、解释、建议、总结
+2. 只输出每个页面的 URL + Meta Title + Meta Description
+3. 使用下面的 example_output 格式，一字不差
+4. Meta Title < 60 字符
+5. Meta Description < 160 字符
+
+如果你写了任何分析或解释，视为失败。""",
+        "data_source": "Google Search Console - 页面搜索表现数据",
+        "extraction_method": "",
+        "hard_rules": "",
+        "example_output": """
+## 页面 1: https://baofengradio.co.uk/
+
+**Meta Title:**  
+Official Baofeng Radio UK | Next Day Delivery
+
+**Meta Description:**  
+Shop genuine Baofeng radios. Fast UK delivery, local warranty.
+
+---
+
+## 页面 2: https://baofengradio.co.uk/blog/program/
+
+**Meta Title:**  
+How to Program Baofeng UV-5R | 2025 Guide
+
+**Meta Description:**  
+Easy step-by-step guide to program your Baofeng radio.
+"""
     }
 }
 
@@ -1148,6 +1183,7 @@ def call_search_agent(campaign_name: str, issues: List[str], start_date: str = N
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add]
     selected_tables: List[str]
+    is_seo_only: bool
 
 
 # --- Standalone Logic (Decoupled from AgentService) ---
@@ -1653,7 +1689,17 @@ class AgentService:
 
         # Ensure System Prompt
         if not isinstance(messages[0], SystemMessage):
-            system_prompt = SystemMessage(content=f"""你是 AdsManager Main Agent (任务调度器)。
+            # 🔥 SEO-Only Mode: 使用 SEO Agent 的专用 prompt
+            is_seo_only = state.get('is_seo_only', False)
+            if is_seo_only:
+                seo_info = TABLE_EXPERT_KNOWLEDGE.get('seo', {})
+                system_prompt = SystemMessage(content=f"""{seo_info.get('focus', '')}
+
+{seo_info.get('example_output', '')}
+""")
+            else:
+                # 通用广告监控模式
+                system_prompt = SystemMessage(content=f"""你是 AdsManager Main Agent (任务调度器)。
 你的职责是实时监控广告表现，并协调"专项专家"进行深入诊断。
 
 **当前活跃的专项专家 (仅限以下):**
@@ -1691,7 +1737,7 @@ class AgentService:
             return "continue"
         return "end"
 
-    async def chat_stream(self, message: str, messages: list, selected_tables: list = None):
+    async def chat_stream(self, message: str, messages: list, selected_tables: list = None, seo_pages_data: list = None):
         input_messages = []
         if messages:
             for msg in messages:
@@ -1700,12 +1746,34 @@ class AgentService:
                 elif msg.role == 'agent':
                     input_messages.append(AIMessage(content=msg.content))
         
+        # 如果有 SEO 数据且选中了 seo agent，将数据添加到消息中
+        if seo_pages_data and selected_tables and 'seo' in selected_tables:
+            seo_data_str = "\n\n【SEO页面数据】\n"
+            for i, page in enumerate(seo_pages_data[:10], 1):  # 最多10个
+                seo_data_str += f"""
+页面 {i}: {page.get('url', '')}
+- CTR: {page.get('ctr', 0)}%
+- Clicks: {page.get('clicks', 0)}
+- Impressions: {page.get('impressions', 0)}
+- Position: {page.get('position', 0)}
+- 当前 Meta Title: {page.get('meta_title', '未获取')}
+- 当前 Meta Description: {page.get('meta_description', '未获取')}
+"""
+            message = message + seo_data_str
+        
         input_messages.append(HumanMessage(content=message))
+        
+        # 判断是否为 SEO-only 模式
+        is_seo_only = selected_tables == ['seo']
+        
+        # 排除 'seo' 因为 SEO 数据不在数据库中，已经注入到消息里了
+        filtered_tables = [t for t in (selected_tables or []) if t != 'seo']
         
         # Initialize state with selected tables
         initial_state = {
             "messages": input_messages,
-            "selected_tables": selected_tables or []
+            "selected_tables": filtered_tables,
+            "is_seo_only": is_seo_only
         }
         
         async for event in self.app.astream_events(initial_state, version="v1"):
@@ -2570,22 +2638,189 @@ class AgentService:
         """Get the default prompt/rules for a specific agent from TABLE_EXPERT_KNOWLEDGE"""
         if table_name in TABLE_EXPERT_KNOWLEDGE:
             knowledge = TABLE_EXPERT_KNOWLEDGE[table_name]
+            
+            # 构建 prompt
+            prompt_parts = [f"【{knowledge.get('title', '')}】"]
+            prompt_parts.append(f"专注领域: {knowledge.get('focus', '')}")
+            prompt_parts.append(f"数据来源: {knowledge.get('data_source', '')}")
+            
+            if knowledge.get("extraction_method", "").strip():
+                prompt_parts.append(f"\n数据提取方法:\n{knowledge.get('extraction_method', '').strip()}")
+            
+            if knowledge.get("hard_rules", "").strip():
+                prompt_parts.append(f"\n硬规则判定:\n{knowledge.get('hard_rules', '').strip()}")
+            
+            if knowledge.get("example_output", "").strip():
+                prompt_parts.append(f"\nexample_output:\n{knowledge.get('example_output', '').strip()}")
+            
             return {
                 "title": knowledge.get("title", ""),
                 "focus": knowledge.get("focus", ""),
                 "data_source": knowledge.get("data_source", ""),
                 "extraction_method": knowledge.get("extraction_method", "").strip(),
                 "hard_rules": knowledge.get("hard_rules", "").strip(),
-                "default_prompt": f"""【{knowledge.get("title", "")}】
-专注领域: {knowledge.get("focus", "")}
-数据来源: {knowledge.get("data_source", "")}
-
-数据提取方法:
-{knowledge.get("extraction_method", "").strip()}
-
-硬规则判定:
-{knowledge.get("hard_rules", "").strip()}"""
+                "example_output": knowledge.get("example_output", "").strip(),
+                "default_prompt": "\n".join(prompt_parts)
             }
         else:
             return {"error": f"Unknown agent: {table_name}", "default_prompt": ""}
 
+    def get_low_ctr_pages(self, ctr_threshold: float = 2.0, start_date: str = None, end_date: str = None, row_limit: int = 100):
+        """从 Google Search Console 获取低CTR页面
+        
+        Args:
+            ctr_threshold: CTR阈值 (百分比，如 2 表示 2%)
+            start_date: 开始日期 (格式: YYYY-MM-DD)
+            end_date: 结束日期 (格式: YYYY-MM-DD)
+            row_limit: 返回行数限制 (1-25000)
+        """
+        import os
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        from datetime import datetime, timedelta
+        
+        # GSC 配置
+        KEY_FILE_PATH = os.path.join(os.path.dirname(__file__), 'zhiyuanzhongyi-b17bb896700a.json')
+        SITE_URL = 'sc-domain:baofengradio.co.uk'
+        
+        try:
+            creds = service_account.Credentials.from_service_account_file(
+                KEY_FILE_PATH, scopes=['https://www.googleapis.com/auth/webmasters.readonly']
+            )
+            service = build('searchconsole', 'v1', credentials=creds)
+            
+            # 使用传入的日期或默认最近30天
+            if not end_date:
+                end_dt = datetime.now() - timedelta(days=3)  # GSC数据有3天延迟
+                end_date = end_dt.strftime('%Y-%m-%d')
+            if not start_date:
+                start_dt = datetime.strptime(end_date, '%Y-%m-%d') - timedelta(days=30)
+                start_date = start_dt.strftime('%Y-%m-%d')
+            
+            # 限制行数范围
+            row_limit = max(1, min(25000, row_limit))
+            
+            request = {
+                'startDate': start_date,
+                'endDate': end_date,
+                'dimensions': ['page'],
+                'rowLimit': row_limit
+            }
+            
+            response = service.searchanalytics().query(siteUrl=SITE_URL, body=request).execute()
+            rows = response.get('rows', [])
+            
+            # 过滤低于CTR阈值的页面
+            ctr_threshold_decimal = ctr_threshold / 100.0  # 转换为小数
+            filtered_rows = []
+            for row in rows:
+                ctr = row.get('ctr', 0)
+                if ctr < ctr_threshold_decimal:
+                    url = row['keys'][0]
+                    # 爬取当前 meta (加入延迟避免被封)
+                    import time
+                    time.sleep(0.1)
+                    meta = self._fetch_current_meta(url)
+                    
+                    filtered_rows.append({
+                        'url': url,
+                        'clicks': row.get('clicks', 0),
+                        'impressions': row.get('impressions', 0),
+                        'ctr': round(ctr * 100, 2),  # 转换为百分比
+                        'position': round(row.get('position', 0), 1),
+                        'meta_title': meta.get('title', ''),
+                        'meta_description': meta.get('description', '')
+                    })
+            
+            return {
+                'status': 'success',
+                'data': filtered_rows,
+                'total': len(filtered_rows),
+                'ctr_threshold': ctr_threshold,
+                'start_date': start_date,
+                'end_date': end_date,
+                'row_limit': row_limit
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'message': str(e),
+                'data': []
+            }
+
+    def _fetch_current_meta(self, url: str) -> dict:
+        """爬取页面当前的 Meta Title 和 Description"""
+        import requests
+        from bs4 import BeautifulSoup
+        
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            response = requests.get(url, headers=headers, timeout=5)
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # 获取 Title
+            current_title = soup.title.string.strip() if soup.title and soup.title.string else "未找到标题"
+            
+            # 获取 Meta Description
+            meta_desc = soup.find('meta', attrs={'name': 'description'})
+            current_desc = meta_desc['content'].strip() if meta_desc and meta_desc.get('content') else "未找到描述"
+            
+            return {
+                'title': current_title,
+                'description': current_desc
+            }
+        except Exception as e:
+            return {
+                'title': f"抓取失败: {str(e)}",
+                'description': "抓取失败"
+            }
+
+    async def seo_agent_analyze(self, site_url: str = 'baofengradio.co.uk', pages: list = None):
+        """SEO Agent: 使用Gemini分析网站并生成优化建议
+        
+        Args:
+            site_url: 站点URL
+            pages: 低CTR页面列表，格式 [{'url': 'xxx', 'ctr': 1.5}, ...]
+        """
+        # 构建页面信息，包括爬取的现有 meta
+        pages_info = ""
+        if pages and len(pages) > 0:
+            pages_info = "\n\n【低CTR页面数据】\n"
+            for i, page in enumerate(pages[:5], 1):  # 最多处理5个页面
+                url = page.get('url', '')
+                ctr = page.get('ctr', 0)
+                
+                # 爬取当前 meta
+                meta = self._fetch_current_meta(url)
+                
+                pages_info += f"""
+页面 {i}: {url}
+- 当前CTR: {ctr}%
+- 当前 Meta Title: {meta['title']}
+- 当前 Meta Description: {meta['description']}
+"""
+        
+        prompt = f"""As a SEO expert, please help to review the persona and persona painpoints of {site_url} in UK market and then write the meta title, meta description base on those findings.
+{pages_info}
+
+Please provide for each page:
+1. Target Persona Analysis (who are the customers)
+2. Customer Pain Points (what problems they face)  
+3. Current Meta Analysis (什么问题导致CTR低)
+4. Optimized Meta Title (compelling, under 60 chars)
+5. Optimized Meta Description (persuasive, under 160 chars)
+
+Format your response clearly with sections for each page."""
+
+        try:
+            response = self.model.generate_content(prompt)
+            return {
+                'status': 'success',
+                'analysis': response.text
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'message': str(e),
+                'analysis': ''
+            }

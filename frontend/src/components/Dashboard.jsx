@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { LayoutDashboard, Filter, X, Zap, Activity, ShoppingBag, RotateCcw, LogOut, User } from 'lucide-react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { LayoutDashboard, Filter, X, Zap, Activity, ShoppingBag, RotateCcw, LogOut, User, Search } from 'lucide-react';
 import ResizableTable from './ResizableTable';
 import AnomalyDashboard from './AnomalyDashboard';
 import ProductMonitor from './ProductMonitor';
@@ -489,6 +489,25 @@ export default function App() {
                         <Zap size={20} fill="#6366f1" />
                         AdsManager
                     </div>
+                    <Link
+                        to="/seo-analysis"
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            color: '#10b981',
+                            textDecoration: 'none',
+                            fontWeight: '500',
+                            fontSize: '14px',
+                            padding: '8px 16px',
+                            borderRadius: '8px',
+                            background: '#ecfdf5',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        <Search size={16} />
+                        SEO分析页
+                    </Link>
                 </div>
 
                 {/* User Profile & Logout */}
@@ -499,7 +518,7 @@ export default function App() {
                         </div>
                         <span>{user?.username || 'User'}</span>
                     </div>
-                    <button 
+                    <button
                         onClick={logout}
                         style={{
                             display: 'flex',

@@ -58,6 +58,7 @@ class ChatRequest(BaseModel):
     message: str
     messages: List[Message] = []
     selectedTables: Optional[List[str]] = []
+    seo_pages_data: Optional[List[dict]] = None
 
 class PreferenceUpdateRequest(BaseModel):
     table_name: str
@@ -109,7 +110,7 @@ def scan_campaigns(current_user: str = Depends(get_current_user)):
 
 @app.post("/api/chat")
 async def chat_with_agent(req: ChatRequest, current_user: str = Depends(get_current_user)):
-    return StreamingResponse(agent.chat_stream(req.message, req.messages, req.selectedTables), media_type="text/plain")
+    return StreamingResponse(agent.chat_stream(req.message, req.messages, req.selectedTables, req.seo_pages_data), media_type="text/plain")
 
 @app.get("/api/tables")
 def get_tables(current_user: str = Depends(get_current_user)):
@@ -181,6 +182,28 @@ def get_agent_default_prompt(table_name: str, current_user: str = Depends(get_cu
     """Get the default prompt/rules for a specific agent"""
     return agent.get_agent_default_prompt(table_name)
 
+# --- SEO Analysis Endpoints ---
+
+class SeoAnalyzeRequest(BaseModel):
+    site_url: str = 'baofengradio.co.uk'
+
+@app.get("/api/seo/low-ctr-pages")
+def get_low_ctr_pages(
+    ctr_threshold: float = 2.0, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None,
+    row_limit: int = 100,
+    current_user: str = Depends(get_current_user)
+):
+    """Get pages with CTR below threshold from Google Search Console"""
+    return agent.get_low_ctr_pages(ctr_threshold, start_date, end_date, row_limit)
+
+@app.post("/api/seo/analyze")
+async def seo_agent_analyze(req: SeoAnalyzeRequest, current_user: str = Depends(get_current_user)):
+    """Run SEO agent to analyze site and generate optimization suggestions"""
+    return await agent.seo_agent_analyze(req.site_url)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

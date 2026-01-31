@@ -17,7 +17,7 @@ export default function AgentChat() {
     const { authFetch } = useAuth();
 
     // --- Table Selection State ---
-    const [selectedTables, setSelectedTables] = useState(['Anomalies', 'Campaigns', 'Products', 'search_term', 'asset', 'audience', 'age', 'gender', 'location', 'ad_schedule', 'channel']);
+    const [selectedTables, setSelectedTables] = useState(['Anomalies', 'Campaigns', 'Products', 'search_term', 'asset', 'audience', 'age', 'gender', 'location', 'ad_schedule', 'channel', 'seo']);
     const [isContextOpen, setIsContextOpen] = useState(false);
 
     // --- Custom Rule Editor State ---
@@ -79,9 +79,15 @@ export default function AgentChat() {
     };
 
     const createNewChat = () => {
+        const now = new Date();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const hour = String(now.getHours()).padStart(2, '0');
+        const minute = String(now.getMinutes()).padStart(2, '0');
+        const dateTimeStr = `${month}-${day} ${hour}:${minute}`;
         const newChat = {
             id: Date.now(),
-            title: `Analysis ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+            title: `Analysis ${dateTimeStr}`,
             messages: [{ role: 'agent', content: '您好！我是 **AdsManager 专家系统 (v1.0)**。\n\n**核心能力**：\n- 🛡️ **Rule-First 诊断**：基于确定性规则，拒绝幻觉。\n- 🩺 **多维度专家**：搜词、渠道、商品、地域深度审计。\n- ⚖️ **风控保护**：大促期、冷启动期自动降级风险动作。\n\n**您可以**：\n- 直接点击 **"Send"** (空消息) 进行全账户自动巡检。\n- 输入 **"分析 [系列名]"** 调遣专家组进行深度诊断。' }]
         };
         setConversations(prev => [newChat, ...(Array.isArray(prev) ? prev : [])]);
@@ -188,15 +194,33 @@ export default function AgentChat() {
         const messageHistory = currentMsgs.map(m => ({ role: m.role, content: m.content })).slice(-10);
 
         try {
+            // 如果选中了 SEO agent，从 localStorage 获取 SEO 页面数据
+            let seoPagesData = null;
+            if (selectedTables.includes('seo')) {
+                try {
+                    const stored = localStorage.getItem('seo_pages_data');
+                    if (stored) {
+                        seoPagesData = JSON.parse(stored);
+                    }
+                } catch (e) {
+                    console.error('Failed to parse SEO pages data:', e);
+                }
+            }
+
             const response = await authFetch(`${API_BASE_URL}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: currentInput,
                     messages: messageHistory,
-                    selectedTables: selectedTables
+                    selectedTables: selectedTables,
+                    seo_pages_data: seoPagesData
                 })
             });
+
+            if (!response.ok) {
+                throw new Error(`Server Error: ${response.status} ${response.statusText}`);
+            }
 
             if (!response.body) throw new Error("No response body");
 
@@ -231,10 +255,10 @@ export default function AgentChat() {
             }
 
         } catch (e) {
-            console.error(e);
+            console.error("Chat Error:", e);
             setConversations(prev => (Array.isArray(prev) ? prev : []).map(c => {
                 if (c.id === currentId) {
-                    return { ...c, messages: [...(Array.isArray(c.messages) ? c.messages : []), { role: 'agent', content: "Error: Could not connect to backend." }] };
+                    return { ...c, messages: [...(Array.isArray(c.messages) ? c.messages : []), { role: 'agent', content: `Error: ${e.message || "Could not connect to backend."}` }] };
                 }
                 return c;
             }));
@@ -343,30 +367,24 @@ export default function AgentChat() {
         const dir = resizeDir.current;
 
         if (dir.includes('e')) {
-            newWidth = Math.max(350, Math.min(resizeStart.current.w + deltaX, window.innerWidth - newLeft - 10));
+            newWidth = Math.max(350, resizeStart.current.w + deltaX);
         } else if (dir.includes('w')) {
             const proposedWidth = resizeStart.current.w - deltaX;
-            if (proposedWidth >= 350 && resizeStart.current.l + deltaX >= 0) {
+            if (proposedWidth >= 350) {
                 newWidth = proposedWidth;
                 newLeft = resizeStart.current.l + deltaX;
             }
         }
 
         if (dir.includes('s')) {
-            newHeight = Math.max(450, Math.min(resizeStart.current.h + deltaY, window.innerHeight - newTop - 10));
+            newHeight = Math.max(450, resizeStart.current.h + deltaY);
         } else if (dir.includes('n')) {
             const proposedHeight = resizeStart.current.h - deltaY;
-            if (proposedHeight >= 450 && resizeStart.current.t + deltaY >= 0) {
+            if (proposedHeight >= 450) {
                 newHeight = proposedHeight;
                 newTop = resizeStart.current.t + deltaY;
             }
         }
-
-        // 确保窗口不超出视口
-        if (newLeft < 0) newLeft = 0;
-        if (newTop < 0) newTop = 0;
-        if (newLeft + newWidth > window.innerWidth) newWidth = window.innerWidth - newLeft;
-        if (newTop + newHeight > window.innerHeight) newHeight = window.innerHeight - newTop;
 
         setWindowSize({ width: newWidth, height: newHeight });
         setPosition({ x: newLeft, y: newTop });
@@ -407,7 +425,8 @@ export default function AgentChat() {
         { id: 'gender', label: '⚧ Gender Demographics' },
         { id: 'location', label: '🌍 Location & Geo Expert' },
         { id: 'ad_schedule', label: '⏰ Time/Schedule Analyst' },
-        { id: 'channel', label: '📡 Channel (PMax) Auditor' }
+        { id: 'channel', label: '📡 Channel (PMax) Auditor' },
+        { id: 'seo', label: '🔎 SEO Analyst' }
     ];
 
     return (
