@@ -66,3 +66,14 @@ dist/
 # Data/Reports (Optional - uncomment if needed)
 # *.xlsx
 # *.csv
+
+# Sensitive/Secret Files
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.*.json
+
+# Test Files
+test.py
+test_*.py
