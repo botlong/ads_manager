@@ -9,18 +9,17 @@ export default function SeoAnalysis() {
     const { authFetch } = useAuth();
     const datePopupRef = useRef(null);
 
+    // 可用日期范围（从数据库获取）
+    const [dateRange, setDateRange] = useState({ start: '', end: '' });
+
     // 从 localStorage 读取上次的值
     const [siteUrl] = useState('baofengradio.co.uk');
     const [ctrThreshold, setCtrThreshold] = useState(() => {
         const saved = localStorage.getItem('seo_ctr_threshold');
         return saved ? parseInt(saved) : 2;
     });
-    const [startDate, setStartDate] = useState(() => {
-        return localStorage.getItem('seo_start_date') || '2026-01-01';
-    });
-    const [endDate, setEndDate] = useState(() => {
-        return localStorage.getItem('seo_end_date') || '2026-01-28';
-    });
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
     const [rowLimit, setRowLimit] = useState(() => {
         const saved = localStorage.getItem('seo_row_limit');
         return saved ? parseInt(saved) : 100;
@@ -34,6 +33,24 @@ export default function SeoAnalysis() {
     const [agentLoading, setAgentLoading] = useState(false);
     const [agentResponse, setAgentResponse] = useState('');
     const responseRef = useRef(null);
+
+    // 页面加载时获取可用日期范围
+    useEffect(() => {
+        const fetchDateRange = async () => {
+            try {
+                const res = await authFetch(`${API_BASE_URL}/api/seo/date-range`);
+                const data = await res.json();
+                if (data.status === 'success') {
+                    setDateRange({ start: data.start_date, end: data.end_date });
+                    setStartDate(data.start_date);
+                    setEndDate(data.end_date);
+                }
+            } catch (e) {
+                console.error('获取日期范围失败:', e);
+            }
+        };
+        fetchDateRange();
+    }, [authFetch]);
 
     // 点击外部关闭日期弹窗
     useEffect(() => {
@@ -242,6 +259,8 @@ export default function SeoAnalysis() {
                                                 <input
                                                     type="date"
                                                     value={startDate}
+                                                    min={dateRange.start}
+                                                    max={dateRange.end}
                                                     onChange={(e) => setStartDate(e.target.value)}
                                                     style={{
                                                         width: '100%',
@@ -257,6 +276,8 @@ export default function SeoAnalysis() {
                                                 <input
                                                     type="date"
                                                     value={endDate}
+                                                    min={dateRange.start}
+                                                    max={dateRange.end}
                                                     onChange={(e) => setEndDate(e.target.value)}
                                                     style={{
                                                         width: '100%',
@@ -267,6 +288,11 @@ export default function SeoAnalysis() {
                                                     }}
                                                 />
                                             </div>
+                                            {dateRange.start && (
+                                                <div style={{ fontSize: '12px', color: '#9ca3af', textAlign: 'center' }}>
+                                                    可用范围: {dateRange.start} ~ {dateRange.end}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 )}

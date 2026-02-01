@@ -195,8 +195,21 @@ def get_low_ctr_pages(
     row_limit: int = 100,
     current_user: str = Depends(get_current_user)
 ):
-    """Get pages with CTR below threshold from Google Search Console"""
+    """Get pages with CTR below threshold from database"""
     return agent.get_low_ctr_pages(ctr_threshold, start_date, end_date, row_limit)
+
+@app.get("/api/seo/date-range")
+def get_seo_date_range(current_user: str = Depends(get_current_user)):
+    """Get available date range from SEO data"""
+    return agent.get_seo_date_range()
+
+class SeoSaveRequest(BaseModel):
+    pages: list
+
+@app.post("/api/seo/save-pages")
+def save_seo_pages(req: SeoSaveRequest, current_user: str = Depends(get_current_user)):
+    """Save SEO pages data to database"""
+    return agent.save_seo_pages(req.pages)
 
 @app.post("/api/seo/analyze")
 async def seo_agent_analyze(req: SeoAnalyzeRequest, current_user: str = Depends(get_current_user)):

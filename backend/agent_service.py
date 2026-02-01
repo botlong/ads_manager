@@ -2666,79 +2666,83 @@ class AgentService:
             return {"error": f"Unknown agent: {table_name}", "default_prompt": ""}
 
     def get_low_ctr_pages(self, ctr_threshold: float = 2.0, start_date: str = None, end_date: str = None, row_limit: int = 100):
-        """从 Google Search Console 获取低CTR页面
+        """从本地数据库获取 SEO 页面数据（支持日期过滤）
         
         Args:
             ctr_threshold: CTR阈值 (百分比，如 2 表示 2%)
             start_date: 开始日期 (格式: YYYY-MM-DD)
             end_date: 结束日期 (格式: YYYY-MM-DD)
-            row_limit: 返回行数限制 (1-25000)
+            row_limit: 返回行数限制
         """
-        import os
-        from google.oauth2 import service_account
-        from googleapiclient.discovery import build
-        from datetime import datetime, timedelta
-        
-        # GSC 配置
-        KEY_FILE_PATH = os.path.join(os.path.dirname(__file__), 'zhiyuanzhongyi-b17bb896700a.json')
-        SITE_URL = 'sc-domain:baofengradio.co.uk'
-        
         try:
-            creds = service_account.Credentials.from_service_account_file(
-                KEY_FILE_PATH, scopes=['https://www.googleapis.com/auth/webmasters.readonly']
-            )
-            service = build('searchconsole', 'v1', credentials=creds)
+            conn = get_db_connection()
+            cursor = conn.cursor()
             
-            # 使用传入的日期或默认最近30天
-            if not end_date:
-                end_dt = datetime.now() - timedelta(days=3)  # GSC数据有3天延迟
-                end_date = end_dt.strftime('%Y-%m-%d')
-            if not start_date:
-                start_dt = datetime.strptime(end_date, '%Y-%m-%d') - timedelta(days=30)
-                start_date = start_dt.strftime('%Y-%m-%d')
+            # 确保表存在
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS seo_pages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT,
+                    clicks INTEGER DEFAULT 0,
+                    impressions INTEGER DEFAULT 0,
+                    ctr REAL DEFAULT 0,
+                    position REAL DEFAULT 0,
+                    meta_title TEXT,
+                    meta_description TEXT,
+                    start_date TEXT,
+                    end_date TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.commit()
             
-            # 限制行数范围
-            row_limit = max(1, min(25000, row_limit))
+            # 构建查询（支持日期范围过滤）
+            query = '''
+                SELECT url, clicks, impressions, ctr, position, meta_title, meta_description, start_date, end_date
+                FROM seo_pages
+                WHERE ctr < ?
+            '''
+            params = [ctr_threshold]
             
-            request = {
-                'startDate': start_date,
-                'endDate': end_date,
-                'dimensions': ['page'],
-                'rowLimit': row_limit
-            }
+            if start_date and end_date:
+                # 检查日期范围是否有交集
+                query += ' AND start_date <= ? AND end_date >= ?'
+                params.append(end_date)
+                params.append(start_date)
+            elif start_date:
+                query += ' AND end_date >= ?'
+                params.append(start_date)
+            elif end_date:
+                query += ' AND start_date <= ?'
+                params.append(end_date)
+                
+            query += ' ORDER BY impressions DESC LIMIT ?'
+            params.append(row_limit)
             
-            response = service.searchanalytics().query(siteUrl=SITE_URL, body=request).execute()
-            rows = response.get('rows', [])
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            conn.close()
             
-            # 过滤低于CTR阈值的页面
-            ctr_threshold_decimal = ctr_threshold / 100.0  # 转换为小数
             filtered_rows = []
             for row in rows:
-                ctr = row.get('ctr', 0)
-                if ctr < ctr_threshold_decimal:
-                    url = row['keys'][0]
-                    # 爬取当前 meta (加入延迟避免被封)
-                    import time
-                    time.sleep(0.1)
-                    meta = self._fetch_current_meta(url)
-                    
-                    filtered_rows.append({
-                        'url': url,
-                        'clicks': row.get('clicks', 0),
-                        'impressions': row.get('impressions', 0),
-                        'ctr': round(ctr * 100, 2),  # 转换为百分比
-                        'position': round(row.get('position', 0), 1),
-                        'meta_title': meta.get('title', ''),
-                        'meta_description': meta.get('description', '')
-                    })
+                filtered_rows.append({
+                    'url': row[0],
+                    'clicks': row[1] or 0,
+                    'impressions': row[2] or 0,
+                    'ctr': round(row[3] or 0, 2),
+                    'position': round(row[4] or 0, 1),
+                    'meta_title': row[5] or '',
+                    'meta_description': row[6] or '',
+                    'start_date': row[7] or '',
+                    'end_date': row[8] or ''
+                })
             
             return {
                 'status': 'success',
                 'data': filtered_rows,
                 'total': len(filtered_rows),
                 'ctr_threshold': ctr_threshold,
-                'start_date': start_date,
-                'end_date': end_date,
+                'source': 'database',
                 'row_limit': row_limit
             }
         except Exception as e:
@@ -2746,6 +2750,86 @@ class AgentService:
                 'status': 'error',
                 'message': str(e),
                 'data': []
+            }
+    
+    def get_seo_date_range(self):
+        """获取 SEO 数据的可用日期范围"""
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT MIN(start_date), MAX(end_date) FROM seo_pages')
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row and row[0]:
+                return {
+                    'status': 'success',
+                    'start_date': row[0],
+                    'end_date': row[1]
+                }
+            else:
+                return {
+                    'status': 'error',
+                    'message': '无数据'
+                }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'message': str(e)
+            }
+    
+    def save_seo_pages(self, pages: list):
+        """保存 SEO 页面数据到数据库
+        
+        Args:
+            pages: 页面列表，格式 [{'url': 'xxx', 'ctr': 1.5, ...}, ...]
+        """
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # 确保表存在
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS seo_pages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT UNIQUE,
+                    clicks INTEGER DEFAULT 0,
+                    impressions INTEGER DEFAULT 0,
+                    ctr REAL DEFAULT 0,
+                    position REAL DEFAULT 0,
+                    meta_title TEXT,
+                    meta_description TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 插入或更新数据
+            for page in pages:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO seo_pages (url, clicks, impressions, ctr, position, meta_title, meta_description, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (
+                    page.get('url', ''),
+                    page.get('clicks', 0),
+                    page.get('impressions', 0),
+                    page.get('ctr', 0),
+                    page.get('position', 0),
+                    page.get('meta_title', ''),
+                    page.get('meta_description', '')
+                ))
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                'status': 'success',
+                'message': f'已保存 {len(pages)} 条数据',
+                'total': len(pages)
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'message': str(e)
             }
 
     def _fetch_current_meta(self, url: str) -> dict:
